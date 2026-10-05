@@ -13,10 +13,13 @@ import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { ChildProcessSpawner } from "effect/unstable/process";
+import type * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 import {
   antigravityPermissionMode,
   applyAntigravityAcpModelSelection,
   buildAntigravityPrompt,
+  makeAntigravityAcpRuntime,
 } from "./AntigravityAcpSupport.ts";
 
 const modelConfig = {
@@ -598,6 +601,54 @@ it.layer(NodeServices.layer)("buildAntigravityPrompt", (it) => {
         code: -32602,
         errorMessage: "A turn requires text or supported attachments.",
       });
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("makeAntigravityAcpRuntime elicitation capability", (it) => {
+  it.effect("advertises elicitation.form capability only when opt-in is enabled", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const mockAgentPath = yield* path.fromFileUrl(
+        new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+      );
+
+      const inspectCapabilities = (elicitation?: boolean) =>
+        Effect.gen(function* () {
+          const requestEvents: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];
+          const runtime = yield* makeAntigravityAcpRuntime({
+            spawn: {
+              command: process.execPath,
+              args: [mockAgentPath],
+              cwd: process.cwd(),
+              env: { T3_ACP_ANTIGRAVITY: "1" },
+            },
+            clientInfo: { name: "t3-code", version: "0.0.0" },
+            childProcessSpawner,
+            cwd: process.cwd(),
+            clientFileSystem: true,
+            ...(elicitation !== undefined ? { elicitation } : {}),
+            requestLogger: (event) =>
+              Effect.sync(() => {
+                requestEvents.push(event);
+              }),
+          });
+          yield* runtime.start();
+          const initEvent = requestEvents.find(
+            (e) => e.method === "initialize" && e.status === "started",
+          );
+          const payload = initEvent?.payload as
+            | { clientCapabilities?: { elicitation?: { form?: unknown } } }
+            | undefined;
+          return payload?.clientCapabilities?.elicitation;
+        }).pipe(Effect.scoped);
+
+      const withoutElicitation = yield* inspectCapabilities(undefined);
+      expect(withoutElicitation).toBeUndefined();
+
+      const withElicitation = yield* inspectCapabilities(true);
+      expect(withElicitation).toEqual({ form: {} });
     }),
   );
 });

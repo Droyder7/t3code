@@ -48,6 +48,13 @@ export interface AntigravityAcpRuntimeInput extends Omit<
    * generation helpers leave it off so they never touch a workspace.
    */
   readonly clientFileSystem?: boolean;
+  /**
+   * Advertise `elicitation.form` capability to the ACP agent.
+   * Chat sessions turn this on so the agent uses `session/elicitation` for
+   * interactive user forms/questions instead of falling back to permission requests.
+   * Installation validation and helper runtimes leave it off.
+   */
+  readonly elicitation?: boolean;
   /** ACP `authenticate` method id. Defaults to the personal Google account flow. */
   readonly authMethod?: AntigravityAuthMethod;
 }
@@ -73,6 +80,7 @@ export const makeAntigravityAcpRuntime = Effect.fn("makeAntigravityAcpRuntime")(
           writeTextFile: input.clientFileSystem === true,
         },
         terminal: false,
+        ...(input.elicitation === true ? { elicitation: { form: {} } } : {}),
       },
       transformStdout: makeAntigravityStdoutTransform(
         input.onAuthorizationUrl ? { onAuthorizationUrl: input.onAuthorizationUrl } : {},

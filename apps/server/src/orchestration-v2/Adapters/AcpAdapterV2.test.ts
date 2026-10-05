@@ -84,6 +84,8 @@ import {
   acpPostSettleWakeShouldBuffer,
   acpProjectedCommandExitCode,
   acpToolCallDiffPatch,
+  elicitationContent,
+  parseElicitationQuestions,
   acpTurnStartShouldPreserveContinuation,
   makeAcpAdapterV2,
   type AcpAdapterV2ExtensionContext,
@@ -174,6 +176,174 @@ describe("acpToolCallDiffPatch", () => {
         { type: "diff", path: "/repo/big.ts", oldText: lines("old"), newText: lines("new") },
       ]),
     );
+  });
+});
+
+describe("ACP elicitation question parsing and answer serialization", () => {
+  it("parses multi-select questions with items.oneOf options and forbids custom answers", () => {
+    const questions = parseElicitationQuestions({
+      message: "Please select packages",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          packages: {
+            type: "array",
+            title: "Selected Packages",
+            description: "Choose packages to install",
+            items: {
+              type: "string",
+              oneOf: [
+                { const: "@t3tools/server", title: "Server", description: "Backend server" },
+                { const: "@t3tools/desktop", title: "Desktop", description: "Desktop app" },
+              ],
+            },
+          },
+        },
+        required: ["packages"],
+      },
+    });
+
+    assert.deepEqual(questions, [
+      {
+        id: "packages",
+        header: "Selected Packages",
+        question: "Choose packages to install",
+        options: [
+          { label: "Server", description: "Backend server", value: "@t3tools/server" },
+          { label: "Desktop", description: "Desktop app", value: "@t3tools/desktop" },
+        ],
+        multiSelect: true,
+        allowCustomAnswer: false,
+        required: true,
+      },
+    ]);
+  });
+
+  it("parses multi-select questions with items.enum options", () => {
+    const questions = parseElicitationQuestions({
+      message: "Pick environments",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          envs: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["staging", "production"],
+            },
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(questions, [
+      {
+        id: "envs",
+        header: "Question 1",
+        question: "Pick environments",
+        options: [
+          { label: "staging", description: "staging", value: "staging" },
+          { label: "production", description: "production", value: "production" },
+        ],
+        multiSelect: true,
+        allowCustomAnswer: false,
+      },
+    ]);
+  });
+
+  it("parses single-select questions with oneOf and enum options and preserves custom answer allowances", () => {
+    const questions = parseElicitationQuestions({
+      message: "Choose deploy target",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          target: {
+            title: "Deploy Target",
+            oneOf: [
+              { const: "us-east-1", title: "US East" },
+              { const: "eu-west-1", title: "EU West" },
+            ],
+          },
+          freeform: {
+            title: "Notes",
+            type: "string",
+          },
+          confirmation: {
+            title: "Confirm",
+            type: "boolean",
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(questions, [
+      {
+        id: "target",
+        header: "Deploy Target",
+        question: "Choose deploy target",
+        options: [
+          { label: "US East", description: "US East", value: "us-east-1" },
+          { label: "EU West", description: "EU West", value: "eu-west-1" },
+        ],
+        allowCustomAnswer: false,
+      },
+      {
+        id: "freeform",
+        header: "Notes",
+        question: "Choose deploy target",
+        options: [],
+      },
+      {
+        id: "confirmation",
+        header: "Confirm",
+        question: "Choose deploy target",
+        options: [
+          { label: "true", description: "Yes", value: "true" },
+          { label: "false", description: "No", value: "false" },
+        ],
+        allowCustomAnswer: false,
+      },
+    ]);
+  });
+
+  it("coerces answers in elicitationContent based on property schema types", () => {
+    const properties = {
+      isFast: { type: "boolean" },
+      port: { type: "integer" },
+      invalidPort: { type: "number" },
+      tags: { type: "array" },
+      singleTag: { type: "array" },
+      title: { type: "string" },
+      fromArray: { type: "string" },
+      untyped: {},
+    };
+
+    const content = elicitationContent(
+      {
+        isFast: "true",
+        port: "8080",
+        invalidPort: "not-a-number",
+        tags: ["a", "b"],
+        singleTag: "single",
+        title: "my-title",
+        fromArray: ["first", "second"],
+        untyped: "value",
+        unknownKey: "discarded",
+      },
+      properties,
+    );
+
+    assert.deepEqual(content, {
+      isFast: true,
+      port: 8080,
+      tags: ["a", "b"],
+      singleTag: ["single"],
+      title: "my-title",
+      fromArray: "first",
+      untyped: "value",
+    });
+    assert.isFalse("invalidPort" in content);
+    assert.isFalse("unknownKey" in content);
   });
 });
 

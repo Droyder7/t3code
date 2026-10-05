@@ -148,6 +148,9 @@ describe("AntigravityAdapterV2 client file system", () => {
       // effect-acp keeps the last handler registered per method; so does this.
       let readTextFile: Parameters<RuntimeService["handleReadTextFile"]>[0] | undefined;
       let writeTextFile: Parameters<RuntimeService["handleWriteTextFile"]>[0] | undefined;
+      let runtimeInput:
+        | Parameters<Parameters<typeof makeAntigravityAdapterV2>[0]["makeRuntime"]>[0]
+        | undefined;
       const crypto = yield* Crypto.Crypto;
       const instanceId = ProviderInstanceId.make("antigravity-containment-test");
       const adapter = makeAntigravityAdapterV2({
@@ -158,8 +161,9 @@ describe("AntigravityAdapterV2 client file system", () => {
         path,
         idAllocator: yield* IdAllocator.IdAllocatorV2,
         serverConfig,
-        makeRuntime: (input) =>
-          makeAntigravityAcpRuntime({
+        makeRuntime: (input) => {
+          runtimeInput = input;
+          return makeAntigravityAcpRuntime({
             ...input,
             childProcessSpawner,
             spawn: {
@@ -181,7 +185,8 @@ describe("AntigravityAdapterV2 client file system", () => {
                   writeTextFile = handler;
                 }).pipe(Effect.andThen(runtime.handleWriteTextFile(handler))),
             })),
-          ),
+          );
+        },
         withProcess: (_stop, task) => task,
         defaultModel: Effect.succeed(undefined),
       });
@@ -210,6 +215,7 @@ describe("AntigravityAdapterV2 client file system", () => {
         runtimePolicy,
       });
       yield* session.ensureThread({ threadId, modelSelection, runtimePolicy });
+      assert.isTrue(runtimeInput?.elicitation);
       if (readTextFile === undefined || writeTextFile === undefined) {
         return yield* Effect.die("Antigravity sessions must serve client file requests");
       }

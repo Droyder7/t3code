@@ -1105,17 +1105,154 @@ function selectAutoApprovedPermissionOption(
   );
 }
 
-function elicitationContent(
+function parseChoiceOptions(
+  choiceSchemas: ReadonlyArray<unknown>,
+): Array<{ label: string; description: string; value: string }> {
+  const options: Array<{ label: string; description: string; value: string }> = [];
+  for (const entry of choiceSchemas) {
+    const entryRecord = unknownRecord(entry);
+    if (!entryRecord) continue;
+    const rawValue = entryRecord.const ?? entryRecord.value;
+    if (rawValue === undefined || rawValue === null) continue;
+    const valueStr = String(rawValue);
+    const rawLabel = entryRecord.title ?? entryRecord.label;
+    const labelStr = nonEmptyText(rawLabel, valueStr);
+    const rawDesc = entryRecord.description;
+    const descStr = nonEmptyText(rawDesc, labelStr);
+    options.push({ label: labelStr, description: descStr, value: valueStr });
+  }
+  return options;
+}
+
+function parseEnumOptions(
+  enumValues: ReadonlyArray<unknown>,
+): Array<{ label: string; description: string; value: string }> {
+  const options: Array<{ label: string; description: string; value: string }> = [];
+  for (const entry of enumValues) {
+    if (typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean") {
+      const str = String(entry).trim();
+      if (str.length > 0) {
+        options.push({ label: str, description: str, value: str });
+      }
+    }
+  }
+  return options;
+}
+
+export function parseElicitationQuestions(params: {
+  readonly message: string;
+  readonly requestedSchema?: unknown;
+}): Array<OrchestrationV2UserInputQuestion> {
+  const requestedSchema = unknownRecord(params.requestedSchema);
+  const properties = unknownRecord(requestedSchema?.properties) ?? {};
+  const requiredList = Array.isArray(requestedSchema?.required)
+    ? requestedSchema.required.filter((item): item is string => typeof item === "string")
+    : [];
+  const requiredKeys = new Set(requiredList);
+  return Object.entries(properties).map(
+    ([id, property], index): OrchestrationV2UserInputQuestion => {
+      const record = unknownRecord(property);
+      const isArray = record?.type === "array";
+      let options: Array<{ label: string; description: string; value?: string }> = [];
+      let multiSelect: boolean | undefined = undefined;
+
+      if (isArray) {
+        multiSelect = true;
+        const itemsRecord = unknownRecord(record?.items);
+        const choiceList = itemsRecord?.oneOf ?? itemsRecord?.anyOf;
+        if (Array.isArray(choiceList)) {
+          options = parseChoiceOptions(choiceList);
+        } else if (Array.isArray(itemsRecord?.enum)) {
+          options = parseEnumOptions(itemsRecord.enum);
+        }
+      } else if (record?.type === "boolean") {
+        options = [
+          { label: "true", description: "Yes", value: "true" },
+          { label: "false", description: "No", value: "false" },
+        ];
+      } else {
+        const choiceList = record?.oneOf ?? record?.anyOf;
+        if (Array.isArray(choiceList)) {
+          options = parseChoiceOptions(choiceList);
+        } else if (Array.isArray(record?.enum)) {
+          options = parseEnumOptions(record.enum);
+        }
+      }
+
+      const allowCustomAnswer =
+        options.length > 0 || record?.type === "boolean" ? false : undefined;
+
+      return {
+        id,
+        header: nonEmptyText(record?.title, `Question ${index + 1}`),
+        question: nonEmptyText(record?.description, params.message),
+        options,
+        ...(multiSelect ? { multiSelect: true } : {}),
+        ...(allowCustomAnswer !== undefined ? { allowCustomAnswer } : {}),
+        ...(requiredKeys.has(id) ? { required: true } : {}),
+      };
+    },
+  );
+}
+
+export function elicitationContent(
   answers: ProviderUserInputAnswers,
-  allowedKeys: ReadonlySet<string>,
+  properties: Record<string, unknown>,
 ): Record<string, EffectAcpSchema.ElicitationContentValue> {
   const content: Record<string, EffectAcpSchema.ElicitationContentValue> = {};
-  for (const [key, value] of Object.entries(answers)) {
-    if (!allowedKeys.has(key)) continue;
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      content[key] = value;
-    } else if (Array.isArray(value)) {
-      content[key] = value.filter((entry): entry is string => typeof entry === "string");
+  for (const [key, rawValue] of Object.entries(answers)) {
+    if (!Object.prototype.hasOwnProperty.call(properties, key)) continue;
+    const propSchema = unknownRecord(properties[key]);
+    const declaredType = typeof propSchema?.type === "string" ? propSchema.type : undefined;
+
+    if (declaredType === "boolean") {
+      const first = Array.isArray(rawValue) ? rawValue[0] : rawValue;
+      if (typeof first === "boolean") {
+        content[key] = first;
+      } else if (first === "true") {
+        content[key] = true;
+      } else if (first === "false") {
+        content[key] = false;
+      }
+    } else if (declaredType === "number" || declaredType === "integer") {
+      const first = Array.isArray(rawValue) ? rawValue[0] : rawValue;
+      const num =
+        typeof first === "number"
+          ? first
+          : typeof first === "string" && first.trim().length > 0
+            ? Number(first)
+            : NaN;
+      if (!Number.isNaN(num) && Number.isFinite(num)) {
+        content[key] = num;
+      }
+    } else if (declaredType === "array") {
+      if (Array.isArray(rawValue)) {
+        content[key] = rawValue
+          .filter(
+            (entry): entry is string | number | boolean => entry !== null && entry !== undefined,
+          )
+          .map(String);
+      } else if (typeof rawValue === "string" && rawValue.length > 0) {
+        content[key] = [rawValue];
+      }
+    } else if (declaredType === "string") {
+      if (typeof rawValue === "string") {
+        content[key] = rawValue;
+      } else if (Array.isArray(rawValue) && rawValue.length > 0) {
+        content[key] = String(rawValue[0]);
+      } else if (typeof rawValue === "number" || typeof rawValue === "boolean") {
+        content[key] = String(rawValue);
+      }
+    } else {
+      if (typeof rawValue === "string" || typeof rawValue === "boolean") {
+        content[key] = rawValue;
+      } else if (typeof rawValue === "number") {
+        if (!Number.isNaN(rawValue) && Number.isFinite(rawValue)) {
+          content[key] = rawValue;
+        }
+      } else if (Array.isArray(rawValue)) {
+        content[key] = rawValue.filter((entry): entry is string => typeof entry === "string");
+      }
     }
   }
   return content;
@@ -5833,29 +5970,7 @@ export function makeAcpAdapterV2(
               const properties = unknownRecord(requestedSchema?.properties) ?? {};
               const elicitationScopeId =
                 "sessionId" in params ? params.sessionId : `request:${params.requestId}`;
-              const questions = Object.entries(properties).map(
-                ([id, property], index): OrchestrationV2UserInputQuestion => {
-                  const record = unknownRecord(property);
-                  const enumValues = Array.isArray(record?.enum)
-                    ? record.enum.filter((value): value is string => typeof value === "string")
-                    : [];
-                  const options =
-                    enumValues.length > 0
-                      ? enumValues.map((value) => ({ label: value, description: value }))
-                      : record?.type === "boolean"
-                        ? [
-                            { label: "true", description: "Yes" },
-                            { label: "false", description: "No" },
-                          ]
-                        : [];
-                  return {
-                    id,
-                    header: nonEmptyText(record?.title, `Question ${index + 1}`),
-                    question: nonEmptyText(record?.description, params.message),
-                    options,
-                  };
-                },
-              );
+              const questions = parseElicitationQuestions(params);
               const userInput = yield* requestUserInputWithAdmission(
                 handlerGeneration,
                 Effect.gen(function* () {
@@ -5877,10 +5992,7 @@ export function makeAcpAdapterV2(
                   ? ({ action: "cancel" } as const)
                   : ({
                       action: "accept",
-                      content: elicitationContent(
-                        userInput.answers,
-                        new Set(Object.keys(properties)),
-                      ),
+                      content: elicitationContent(userInput.answers, properties),
                     } as const);
               yield* userInput.acknowledgeNativeResponse;
               return response;
