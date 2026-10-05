@@ -193,6 +193,13 @@ export function QuestionAttachments(props: {
           onChangeText={props.onChangeText}
           onFocus={() => props.onInputFocusChange?.(true)}
           onBlur={() => props.onInputFocusChange?.(false)}
+          keyboardType={
+            props.question.valueType === "integer"
+              ? "number-pad"
+              : props.question.valueType === "number"
+                ? "decimal-pad"
+                : "default"
+          }
           placeholder="Or type a custom answer"
           className="min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground"
         />

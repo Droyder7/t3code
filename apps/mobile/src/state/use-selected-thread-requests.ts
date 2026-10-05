@@ -14,7 +14,11 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { type ProviderApprovalDecision, type RuntimeRequestId } from "@t3tools/contracts";
+import {
+  type ProviderApprovalDecision,
+  type RuntimeRequestId,
+  validateUserInputAnswers,
+} from "@t3tools/contracts";
 import {
   type PendingThreadRequests,
   type ThreadUserInputQuestion,
@@ -244,6 +248,16 @@ export function useSelectedThreadRequests() {
       !activePendingUserInputAnswers
     ) {
       return;
+    }
+    if (activePendingUserInput.responseCapability === "live") {
+      const validation = validateUserInputAnswers(
+        activePendingUserInput.questions,
+        activePendingUserInputAnswers,
+      );
+      if (!validation.ok) {
+        Alert.alert("Check your answer", validation.message);
+        return;
+      }
     }
 
     const responseKey = questionAttachmentDraftKey(
