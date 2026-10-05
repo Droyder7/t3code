@@ -1176,17 +1176,17 @@ export function parseElicitationQuestions(params: {
         }
       } else if (record?.type === "boolean") {
         // An enum narrows the boolean domain (e.g. only `true` is acceptable); without one
-        // both choices are offered. Non-boolean enum entries cannot be answered, so they
-        // are dropped, and an enum with no booleans at all falls back to both choices.
+        // both choices are offered. An explicit enum with no boolean values is a
+        // contradictory schema: the question gets no options, and the response path
+        // declines the elicitation rather than accepting a value the agent forbade.
         const enumBooleans = Array.isArray(record?.enum)
           ? [
               ...new Set(
                 record.enum.filter((entry): entry is boolean => typeof entry === "boolean"),
               ),
             ]
-          : [];
-        const allowed = enumBooleans.length > 0 ? enumBooleans : [true, false];
-        options = allowed.map((entry) => ({
+          : undefined;
+        options = (enumBooleans ?? [true, false]).map((entry) => ({
           label: String(entry),
           description: entry ? "Yes" : "No",
           value: String(entry),
@@ -1225,10 +1225,9 @@ export function parseElicitationQuestions(params: {
         isArray && Number.isInteger(record?.maxItems) && (record!.maxItems as number) >= 0
           ? (record!.maxItems as number)
           : undefined;
-      // Optionless arrays can only receive one typed answer, so clamp their effective item bounds
-      // to what that answer can satisfy; the UI, validator, and adapter all read the clamped model.
-      const effectiveMinItems =
-        minItems !== undefined && options.length === 0 ? Math.min(minItems, 1) : minItems;
+      // Optionless arrays can only receive one typed answer. The declared minimum still
+      // applies so an undersized answer fails validation; the maximum is raised to one so a
+      // lone typed answer is not rejected outright.
       const effectiveMaxItems =
         maxItems !== undefined && options.length === 0 ? Math.max(maxItems, 1) : maxItems;
       const isNumberType = declaredType === "number" || declaredType === "integer";
@@ -1270,7 +1269,7 @@ export function parseElicitationQuestions(params: {
         ...(isStringType && typeof record?.pattern === "string" && record.pattern.length > 0
           ? { pattern: record.pattern }
           : {}),
-        ...(effectiveMinItems !== undefined ? { minItems: effectiveMinItems } : {}),
+        ...(minItems !== undefined ? { minItems } : {}),
         ...(effectiveMaxItems !== undefined ? { maxItems: effectiveMaxItems } : {}),
         ...(allowCustomAnswer !== undefined ? { allowCustomAnswer } : {}),
         required: requiredKeys.has(id),
@@ -1310,6 +1309,15 @@ export function resolveElicitationResponse(params: {
     } {
   if (params.answers === null) {
     return { action: "cancel" };
+  }
+  // A boolean question with no options comes from a contradictory schema (an enum with no
+  // boolean values); the form cannot be answered faithfully, so decline outright.
+  if (
+    params.questions.some(
+      (question) => question.valueType === "boolean" && question.options.length === 0,
+    )
+  ) {
+    return { action: "decline" };
   }
   const content = elicitationContent(params.answers, params.questions);
   const missingRequired = params.questions.some(

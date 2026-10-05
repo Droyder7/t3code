@@ -20,8 +20,15 @@ describe("pendingUserInputKeyboardType", () => {
     );
   });
 
-  it("preserves decimal-pad for numbers and default for everything else", () => {
-    expect(pendingUserInputKeyboardType({ valueType: "number" })).toBe("decimal-pad");
+  it("keeps the decimal-pad only for nonnegative number questions", () => {
+    expect(pendingUserInputKeyboardType({ valueType: "number", minimum: 0 })).toBe("decimal-pad");
+    expect(pendingUserInputKeyboardType({ valueType: "number" })).toBe("numbers-and-punctuation");
+    expect(pendingUserInputKeyboardType({ valueType: "number", minimum: -1.5 })).toBe(
+      "numbers-and-punctuation",
+    );
+  });
+
+  it("preserves the default layout for everything else", () => {
     expect(pendingUserInputKeyboardType({ valueType: "string" })).toBe("default");
     expect(pendingUserInputKeyboardType({})).toBe("default");
   });

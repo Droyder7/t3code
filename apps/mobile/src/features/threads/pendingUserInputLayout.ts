@@ -37,21 +37,20 @@ export function derivePendingUserInputMaxHeight(input: {
 }
 
 /**
- * The iOS number-pad has no minus key, so negative-capable integer questions get the
- * numbers-and-punctuation layout; Android resolves unknown layouts to the default keyboard,
- * which still offers a minus sign.
+ * The iOS number-pad and decimal-pad have no minus key, so negative-capable numeric questions
+ * get the numbers-and-punctuation layout; Android resolves unknown layouts to the default
+ * keyboard, which still offers a minus sign.
  */
 export function pendingUserInputKeyboardType(question: {
   readonly valueType?: "string" | "number" | "integer" | "boolean" | "array" | undefined;
   readonly minimum?: number | undefined;
 }): "default" | "number-pad" | "decimal-pad" | "numbers-and-punctuation" {
+  const excludesNegatives = question.minimum !== undefined && question.minimum >= 0;
   if (question.valueType === "integer") {
-    return question.minimum !== undefined && question.minimum >= 0
-      ? "number-pad"
-      : "numbers-and-punctuation";
+    return excludesNegatives ? "number-pad" : "numbers-and-punctuation";
   }
   if (question.valueType === "number") {
-    return "decimal-pad";
+    return excludesNegatives ? "decimal-pad" : "numbers-and-punctuation";
   }
   return "default";
 }

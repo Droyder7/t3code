@@ -333,7 +333,6 @@ describe("ACP elicitation question parsing and answer serialization", () => {
         properties: {
           mustAccept: { type: "boolean", enum: [true], title: "Accept terms" },
           both: { type: "boolean" },
-          emptyEnum: { type: "boolean", enum: ["yes"] },
         },
       },
     });
@@ -343,17 +342,36 @@ describe("ACP elicitation question parsing and answer serialization", () => {
       { label: "true", description: "Yes", value: "true" },
       { label: "false", description: "No", value: "false" },
     ]);
-    // An enum without boolean entries cannot be answered, so both choices stay available.
-    assert.deepEqual(questions[2]?.options, [
-      { label: "true", description: "Yes", value: "true" },
-      { label: "false", description: "No", value: "false" },
-    ]);
 
     const content = elicitationContent({ mustAccept: "false" }, questions);
     assert.isFalse("mustAccept" in content);
     assert.deepEqual(resolveElicitationResponse({ answers: { mustAccept: "false" }, questions }), {
       action: "accept",
       content: {},
+    });
+  });
+
+  it("declines elicitation when a boolean enum leaves no answerable option", () => {
+    const questions = parseElicitationQuestions({
+      message: "Confirm",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          broken: { type: "boolean", enum: ["yes"] },
+          name: { type: "string" },
+        },
+      },
+    });
+
+    // An explicit enum without boolean values contradicts the boolean type: no options.
+    assert.deepEqual(questions[0]?.options, []);
+    // The elicitation declines even when every other question is answered.
+    assert.deepEqual(resolveElicitationResponse({ answers: { name: "app" }, questions }), {
+      action: "decline",
+    });
+    // Cancellation still takes precedence over the decline.
+    assert.deepEqual(resolveElicitationResponse({ answers: null, questions }), {
+      action: "cancel",
     });
   });
 
@@ -479,7 +497,7 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     ]);
   });
 
-  it("clamps minimum item counts for optionless arrays to what a typed answer can satisfy", () => {
+  it("keeps the declared minimum for optionless arrays so undersized answers fail validation", () => {
     const questions = parseElicitationQuestions({
       message: "Add tags",
       requestedSchema: {
@@ -490,10 +508,11 @@ describe("ACP elicitation question parsing and answer serialization", () => {
       },
     });
 
-    assert.equal(questions[0]?.minItems, 1);
+    assert.equal(questions[0]?.minItems, 3);
+    // The maximum is still raised so a lone typed answer is not rejected outright.
     assert.equal(questions[0]?.maxItems, 1);
     const content = elicitationContent({ tags: "solo" }, questions);
-    assert.deepEqual(content, { tags: ["solo"] });
+    assert.deepEqual(content, {});
   });
 
   it("coerces answers in elicitationContent based on property schema types and constraints", () => {
