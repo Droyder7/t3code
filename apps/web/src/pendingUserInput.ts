@@ -1,4 +1,4 @@
-import type { UserInputQuestion } from "@t3tools/contracts";
+import { validateUserInputAnswers, type UserInputQuestion } from "@t3tools/contracts";
 
 export interface PendingUserInputDraftAnswer {
   selectedOptionValues?: string[];
@@ -156,6 +156,18 @@ export function buildPendingUserInputAnswers(
   }
 
   return answers;
+}
+
+/**
+ * Pre-submit check for live answers: returns the first constraint failure, or null when the
+ * answers can be dispatched. Kept here so the composer and its tests share one path.
+ */
+export function pendingUserInputValidationError(
+  questions: ReadonlyArray<UserInputQuestion>,
+  answers: Readonly<Record<string, unknown>>,
+): string | null {
+  const validation = validateUserInputAnswers(questions, answers);
+  return validation.ok ? null : validation.message;
 }
 
 export function countAnsweredPendingUserInputQuestions(

@@ -6,6 +6,7 @@ import {
   countAnsweredPendingUserInputQuestions,
   derivePendingUserInputProgress,
   findFirstUnansweredPendingUserInputQuestionIndex,
+  pendingUserInputValidationError,
   resolvePendingUserInputAnswer,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
@@ -394,5 +395,26 @@ describe("optional pending user input", () => {
     const progress = derivePendingUserInputProgress([optional], {}, 0);
     expect(progress.canAdvance).toBe(true);
     expect(progress.isComplete).toBe(true);
+  });
+});
+
+describe("pendingUserInputValidationError", () => {
+  it("returns null for answers that satisfy the question constraints", () => {
+    expect(
+      pendingUserInputValidationError([singleSelectQuestion], {
+        scope: "Orchestration-first",
+      }),
+    ).toBeNull();
+  });
+
+  it("returns the constraint message for invalid answers", () => {
+    const bounded = {
+      ...multiSelectQuestion,
+      valueType: "array" as const,
+      minItems: 2,
+    };
+    expect(pendingUserInputValidationError([bounded], { areas: ["Server"] })).toBe(
+      "Select at least 2 options.",
+    );
   });
 });

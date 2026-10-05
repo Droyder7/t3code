@@ -76,7 +76,6 @@ import {
   resolveEnvironmentMachineKind,
   RuntimeMode,
   TerminalOpenInput,
-  validateUserInputAnswers,
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
@@ -205,6 +204,7 @@ import {
   buildPendingUserInputAnswers,
   carryDisplacedCustomAnswerIntoPrompt,
   derivePendingUserInputProgress,
+  pendingUserInputValidationError,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
@@ -9718,9 +9718,9 @@ export default function ChatView(props: ChatViewProps) {
       const pendingInput = pendingUserInputs.find((input) => input.requestId === requestId);
       if (!pendingInput || pendingInput.responseCapability === "not_resumable") return;
       if (pendingInput.responseCapability === "live") {
-        const validation = validateUserInputAnswers(pendingInput.questions, answers);
-        if (!validation.ok) {
-          setThreadError(activeThreadId, validation.message);
+        const validationError = pendingUserInputValidationError(pendingInput.questions, answers);
+        if (validationError !== null) {
+          setThreadError(activeThreadId, validationError);
           return;
         }
       }
