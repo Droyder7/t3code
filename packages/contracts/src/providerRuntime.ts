@@ -494,6 +494,8 @@ export const UserInputQuestion = Schema.Struct({
   multiSelect: Schema.optional(Schema.Boolean).pipe(
     Schema.withConstructorDefault(Effect.succeed(false)),
   ),
+  minItems: Schema.optional(NonNegativeInt),
+  maxItems: Schema.optional(NonNegativeInt),
 });
 export type UserInputQuestion = typeof UserInputQuestion.Type;
 

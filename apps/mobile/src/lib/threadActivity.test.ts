@@ -1977,6 +1977,19 @@ describe("pending user input answers", () => {
     ).toEqual({ customAnswer: "" });
   });
 
+  it("prevents selecting more options than question.maxItems while allowing deselection", () => {
+    const question = { ...multiSelectQuestion, maxItems: 2 };
+    const one = togglePendingUserInputOptionSelection(question, undefined, "Orders");
+    const two = togglePendingUserInputOptionSelection(question, one, "Listings");
+    expect(two.selectedOptionValues).toEqual(["Orders", "Listings"]);
+
+    const three = togglePendingUserInputOptionSelection(question, two, "Customers");
+    expect(three.selectedOptionValues).toEqual(["Orders", "Listings"]);
+
+    const deselected = togglePendingUserInputOptionSelection(question, two, "Orders");
+    expect(deselected.selectedOptionValues).toEqual(["Listings"]);
+  });
+
   it("builds array answers for multi-select questions", () => {
     expect(
       buildPendingUserInputAnswers([singleSelectQuestion, multiSelectQuestion], {

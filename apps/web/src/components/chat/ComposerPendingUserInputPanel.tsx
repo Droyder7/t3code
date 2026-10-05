@@ -235,7 +235,15 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           <ComposerBanner.Body className="pe-1 pb-1 wrap-anywhere">
             <p className="text-sm text-foreground/85">{activeQuestion.question}</p>
             {activeQuestion.multiSelect ? (
-              <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
+              <p className="mt-1 text-secondary-label text-xs">
+                {activeQuestion.minItems !== undefined && activeQuestion.maxItems !== undefined
+                  ? `Select between ${activeQuestion.minItems} and ${activeQuestion.maxItems} options.`
+                  : activeQuestion.maxItems !== undefined
+                    ? `Select up to ${activeQuestion.maxItems} option${activeQuestion.maxItems === 1 ? "" : "s"}.`
+                    : activeQuestion.minItems !== undefined
+                      ? `Select at least ${activeQuestion.minItems} option${activeQuestion.minItems === 1 ? "" : "s"}.`
+                      : "Select one or more options."}
+              </p>
             ) : null}
             <div className="mt-2 space-y-0.5">
               {activeQuestion.options.map((option, index) => {

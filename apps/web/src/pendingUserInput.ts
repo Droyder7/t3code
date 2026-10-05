@@ -111,7 +111,18 @@ export function togglePendingUserInputOptionSelection(
 ): PendingUserInputDraftAnswer {
   if (question.multiSelect) {
     const selectedOptionValues = normalizeSelectedOptionValues(draft?.selectedOptionValues);
-    const nextSelectedOptionValues = selectedOptionValues.includes(optionValue)
+    const isSelected = selectedOptionValues.includes(optionValue);
+    if (
+      !isSelected &&
+      question.maxItems !== undefined &&
+      selectedOptionValues.length >= question.maxItems
+    ) {
+      return {
+        customAnswer: "",
+        ...(selectedOptionValues.length > 0 ? { selectedOptionValues } : {}),
+      };
+    }
+    const nextSelectedOptionValues = isSelected
       ? selectedOptionValues.filter((value) => value !== optionValue)
       : [...selectedOptionValues, optionValue];
 

@@ -26,6 +26,8 @@ import * as NodeCrypto from "node:crypto";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
 import { ANTIGRAVITY_AUTH_BROWSER_MARKER } from "./antigravityAuthSupport.ts";
 import {
+  ANTIGRAVITY_RELEASE_VERSION,
+  releaseAssets,
   resolveAntigravityReleaseAsset,
   type AntigravityReleaseAsset,
 } from "./antigravityRelease.ts";
@@ -962,12 +964,13 @@ it.layer(NodeServices.layer)("Antigravity installation", (it) => {
 
     for (const { platform, arch } of supportedPlatforms) {
       const asset = resolveAntigravityReleaseAsset(platform, arch);
+      const expected = releaseAssets.get(`${platform}-${arch}`);
       expect(asset).not.toBeNull();
-      expect(asset?.version).toBe("1.3.0");
-      expect(asset?.url).toContain("1.3.0");
-      expect(asset?.archiveBytes).toBeGreaterThan(0);
-      expect(asset?.executable.bytes).toBeGreaterThan(0);
-      expect(asset?.harness.bytes).toBeGreaterThan(0);
+      expect(asset?.version).toBe(ANTIGRAVITY_RELEASE_VERSION);
+      expect(asset?.url).toContain(ANTIGRAVITY_RELEASE_VERSION);
+      expect(asset?.archiveBytes).toBe(expected?.archiveBytes);
+      expect(asset?.executable.bytes).toBe(expected?.executable.bytes);
+      expect(asset?.harness.bytes).toBe(expected?.harness.bytes);
     }
 
     expect(resolveAntigravityReleaseAsset("freebsd", "x64")).toBeNull();

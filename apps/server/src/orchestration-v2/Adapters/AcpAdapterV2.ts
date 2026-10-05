@@ -1105,6 +1105,9 @@ function selectAutoApprovedPermissionOption(
   );
 }
 
+// Option labels are presentation-layer strings displayed in the UI where leading/trailing
+// whitespace is trimmed and validated by TrimmedNonEmptyString. Option values remain byte-exact
+// so that serialized JSON-RPC elicitation responses match the agent-declared schema values.
 function parseChoiceOptions(
   choiceSchemas: ReadonlyArray<unknown>,
 ): Array<{ label: string; description: string; value: string }> {
@@ -1125,6 +1128,8 @@ function parseChoiceOptions(
   return options;
 }
 
+// Enum option labels match their raw string representation; like choice options, values
+// are preserved byte-exact for JSON-RPC serialization.
 function parseEnumOptions(
   enumValues: ReadonlyArray<unknown>,
 ): Array<{ label: string; description: string; value: string }> {
@@ -1146,10 +1151,6 @@ export function parseElicitationQuestions(params: {
 }): Array<OrchestrationV2UserInputQuestion> {
   const requestedSchema = unknownRecord(params.requestedSchema);
   const properties = unknownRecord(requestedSchema?.properties) ?? {};
-  const requiredList = Array.isArray(requestedSchema?.required)
-    ? requestedSchema.required.filter((item): item is string => typeof item === "string")
-    : [];
-  const requiredKeys = new Set(requiredList);
   return Object.entries(properties).map(
     ([id, property], index): OrchestrationV2UserInputQuestion => {
       const record = unknownRecord(property);
@@ -1185,19 +1186,46 @@ export function parseElicitationQuestions(params: {
       const allowCustomAnswer =
         options.length > 0 || record?.type === "boolean" ? false : undefined;
 
+      let questionText = nonEmptyText(record?.description, params.message);
+      const declaredType = typeof record?.type === "string" ? record.type : undefined;
+      if (declaredType === "number" || declaredType === "integer") {
+        const hasMin = typeof record?.minimum === "number";
+        const hasMax = typeof record?.maximum === "number";
+        if (hasMin && hasMax) {
+          questionText = `${questionText} (between ${record!.minimum} and ${record!.maximum})`;
+        } else if (hasMin) {
+          questionText = `${questionText} (minimum ${record!.minimum})`;
+        } else if (hasMax) {
+          questionText = `${questionText} (maximum ${record!.maximum})`;
+        }
+      }
+
+      const minItems =
+        isArray && Number.isInteger(record?.minItems) && (record!.minItems as number) >= 0
+          ? (record!.minItems as number)
+          : undefined;
+      const maxItems =
+        isArray && Number.isInteger(record?.maxItems) && (record!.maxItems as number) >= 0
+          ? (record!.maxItems as number)
+          : undefined;
+
       return {
         id,
         header: nonEmptyText(record?.title, `Question ${index + 1}`),
-        question: nonEmptyText(record?.description, params.message),
+        question: questionText,
         options,
         ...(multiSelect ? { multiSelect: true } : {}),
+        ...(minItems !== undefined ? { minItems } : {}),
+        ...(maxItems !== undefined ? { maxItems } : {}),
         ...(allowCustomAnswer !== undefined ? { allowCustomAnswer } : {}),
-        ...(requiredKeys.has(id) ? { required: true } : {}),
       };
     },
   );
 }
 
+// Advanced JSON Schema validation keywords (such as exclusiveMinimum, exclusiveMaximum,
+// pattern, minLength, and maxLength) are intentionally scoped out here; conversational elicitation
+// focuses on core interactive primitives (strings, numbers, booleans, choices, and arrays).
 export function elicitationContent(
   answers: ProviderUserInputAnswers,
   properties: Record<string, unknown>,
@@ -1225,7 +1253,7 @@ export function elicitationContent(
           : typeof first === "string" && first.trim().length > 0
             ? Number(first)
             : NaN;
-      if (!Number.isNaN(num) && Number.isFinite(num)) {
+      if (Number.isFinite(num)) {
         if (declaredType === "integer" && !Number.isInteger(num)) {
           // Reject floats for integer fields
         } else if (typeof propSchema?.minimum === "number" && num < propSchema.minimum) {
@@ -1266,7 +1294,7 @@ export function elicitationContent(
       if (typeof rawValue === "string" || typeof rawValue === "boolean") {
         content[key] = rawValue;
       } else if (typeof rawValue === "number") {
-        if (!Number.isNaN(rawValue) && Number.isFinite(rawValue)) {
+        if (Number.isFinite(rawValue)) {
           content[key] = rawValue;
         }
       } else if (Array.isArray(rawValue)) {
@@ -1275,6 +1303,27 @@ export function elicitationContent(
     }
   }
   return content;
+}
+
+export function resolveElicitationResponse(params: {
+  readonly answers: ProviderUserInputAnswers | null;
+  readonly properties: Record<string, unknown>;
+  readonly requiredKeys?: ReadonlyArray<string>;
+}):
+  | { readonly action: "cancel" }
+  | { readonly action: "decline" }
+  | {
+      readonly action: "accept";
+      readonly content: Record<string, EffectAcpSchema.ElicitationContentValue>;
+    } {
+  if (params.answers === null) {
+    return { action: "cancel" };
+  }
+  const content = elicitationContent(params.answers, params.properties);
+  const requiredKeys = params.requiredKeys ?? [];
+  return requiredKeys.some((key) => !Object.prototype.hasOwnProperty.call(content, key))
+    ? { action: "decline" }
+    : { action: "accept", content };
 }
 
 interface ActiveTextSegment {
@@ -6006,22 +6055,16 @@ export function makeAcpAdapterV2(
                 }),
                 transportRequestId,
               );
-              const response =
-                userInput.answers === null
-                  ? ({ action: "cancel" } as const)
-                  : (() => {
-                      const content = elicitationContent(userInput.answers, properties);
-                      const requiredKeys = Array.isArray(requestedSchema?.required)
-                        ? requestedSchema.required.filter(
-                            (item): item is string => typeof item === "string",
-                          )
-                        : [];
-                      return requiredKeys.some(
-                        (key) => !Object.prototype.hasOwnProperty.call(content, key),
-                      )
-                        ? ({ action: "decline" } as const)
-                        : ({ action: "accept", content } as const);
-                    })();
+              const requiredKeys = Array.isArray(requestedSchema?.required)
+                ? requestedSchema.required.filter(
+                    (item): item is string => typeof item === "string",
+                  )
+                : [];
+              const response = resolveElicitationResponse({
+                answers: userInput.answers,
+                properties,
+                requiredKeys,
+              });
               yield* userInput.acknowledgeNativeResponse;
               return response;
             }),

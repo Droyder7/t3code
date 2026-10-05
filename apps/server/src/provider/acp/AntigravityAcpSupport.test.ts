@@ -647,6 +647,9 @@ it.layer(NodeServices.layer)("makeAntigravityAcpRuntime elicitation capability",
       const withoutElicitation = yield* inspectCapabilities(undefined);
       expect(withoutElicitation).toBeUndefined();
 
+      const withFalseElicitation = yield* inspectCapabilities(false);
+      expect(withFalseElicitation).toBeUndefined();
+
       const withElicitation = yield* inspectCapabilities(true);
       expect(withElicitation).toEqual({ form: {} });
     }),

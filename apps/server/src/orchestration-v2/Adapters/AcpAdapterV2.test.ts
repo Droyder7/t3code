@@ -86,6 +86,7 @@ import {
   acpToolCallDiffPatch,
   elicitationContent,
   parseElicitationQuestions,
+  resolveElicitationResponse,
   acpTurnStartShouldPreserveContinuation,
   makeAcpAdapterV2,
   type AcpAdapterV2ExtensionContext,
@@ -214,7 +215,6 @@ describe("ACP elicitation question parsing and answer serialization", () => {
         ],
         multiSelect: true,
         allowCustomAnswer: false,
-        required: true,
       },
     ]);
   });
@@ -379,6 +379,7 @@ describe("ACP elicitation question parsing and answer serialization", () => {
           { label: "first", description: "first", value: "first" },
           { label: "second", description: "second", value: "second" },
         ],
+        maxItems: 1,
         allowCustomAnswer: false,
       },
     ]);
@@ -446,6 +447,106 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     assert.isFalse("limitedTagsFail" in content);
     assert.isFalse("minTagsFail" in content);
     assert.isFalse("unknownKey" in content);
+  });
+
+  it("surfaces numeric bounds in question text and parses minItems/maxItems for array questions", () => {
+    const questions = parseElicitationQuestions({
+      message: "Please configure settings",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          boundedPort: {
+            type: "integer",
+            title: "Port",
+            description: "Target port",
+            minimum: 1024,
+            maximum: 65535,
+          },
+          minTimeout: {
+            type: "number",
+            title: "Timeout",
+            minimum: 1,
+          },
+          maxRetries: {
+            type: "integer",
+            title: "Retries",
+            maximum: 10,
+          },
+          tags: {
+            type: "array",
+            title: "Tags",
+            minItems: 1,
+            maxItems: 5,
+            items: {
+              type: "string",
+              enum: ["tag1", "tag2"],
+            },
+          },
+        },
+      },
+    });
+
+    assert.equal(questions[0]?.question, "Target port (between 1024 and 65535)");
+    assert.equal(questions[1]?.question, "Please configure settings (minimum 1)");
+    assert.equal(questions[2]?.question, "Please configure settings (maximum 10)");
+    assert.equal(questions[3]?.minItems, 1);
+    assert.equal(questions[3]?.maxItems, 5);
+    assert.isUndefined(questions[0]?.required);
+    assert.isUndefined(questions[3]?.required);
+  });
+
+  it("resolves elicitation responses for cancel, accept, and decline on missing required fields", () => {
+    const properties = {
+      name: { type: "string" },
+      port: { type: "integer", minimum: 1024, maximum: 65535 },
+      tags: { type: "array", maxItems: 2 },
+    };
+
+    // 1. Cancel on null answers
+    const cancelResult = resolveElicitationResponse({
+      answers: null,
+      properties,
+      requiredKeys: ["name"],
+    });
+    assert.deepEqual(cancelResult, { action: "cancel" });
+
+    // 2. Accept when all required keys pass
+    const acceptResult = resolveElicitationResponse({
+      answers: { name: "my-app", port: "8080", tags: ["a"] },
+      properties,
+      requiredKeys: ["name", "port"],
+    });
+    assert.deepEqual(acceptResult, {
+      action: "accept",
+      content: { name: "my-app", port: 8080, tags: ["a"] },
+    });
+
+    // 3. Decline when a required property value violates schema constraint and gets omitted
+    const declineResult = resolveElicitationResponse({
+      answers: { name: "my-app", port: "100" }, // 100 < minimum 1024 -> omitted
+      properties,
+      requiredKeys: ["port"],
+    });
+    assert.deepEqual(declineResult, { action: "decline" });
+
+    // 4. Decline when an array exceeds maxItems on a required field
+    const declineArrayResult = resolveElicitationResponse({
+      answers: { tags: ["a", "b", "c"] }, // 3 > maxItems 2 -> omitted
+      properties,
+      requiredKeys: ["tags"],
+    });
+    assert.deepEqual(declineArrayResult, { action: "decline" });
+
+    // 5. Accept when only optional property value is omitted due to constraint violation
+    const acceptOptionalOmitResult = resolveElicitationResponse({
+      answers: { name: "my-app", port: "100" }, // port violates, but port is optional
+      properties,
+      requiredKeys: ["name"],
+    });
+    assert.deepEqual(acceptOptionalOmitResult, {
+      action: "accept",
+      content: { name: "my-app" },
+    });
   });
 });
 

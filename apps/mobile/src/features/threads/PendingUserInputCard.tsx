@@ -278,6 +278,17 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
               <Text className="font-sans text-base leading-snug text-foreground">
                 {question.question}
               </Text>
+              {question.multiSelect ? (
+                <Text className="font-sans text-xs text-foreground-muted">
+                  {question.minItems !== undefined && question.maxItems !== undefined
+                    ? `Select between ${question.minItems} and ${question.maxItems} options.`
+                    : question.maxItems !== undefined
+                      ? `Select up to ${question.maxItems} option${question.maxItems === 1 ? "" : "s"}.`
+                      : question.minItems !== undefined
+                        ? `Select at least ${question.minItems} option${question.minItems === 1 ? "" : "s"}.`
+                        : "Select one or more options."}
+                </Text>
+              ) : null}
               <View className="gap-2">
                 {question.options.map((option) => {
                   const optionValue = option.value ?? option.label.trim();

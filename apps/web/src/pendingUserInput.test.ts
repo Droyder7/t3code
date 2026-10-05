@@ -151,6 +151,19 @@ describe("togglePendingUserInputOptionSelection", () => {
       result: ["second"],
     });
   });
+
+  it("prevents selecting more options than question.maxItems while allowing deselection", () => {
+    const question = { ...multiSelectQuestion, maxItems: 2 };
+    const one = togglePendingUserInputOptionSelection(question, undefined, "Server");
+    const two = togglePendingUserInputOptionSelection(question, one, "Desktop");
+    expect(two.selectedOptionValues).toEqual(["Server", "Desktop"]);
+
+    const three = togglePendingUserInputOptionSelection(question, two, "Web");
+    expect(three.selectedOptionValues).toEqual(["Server", "Desktop"]);
+
+    const deselected = togglePendingUserInputOptionSelection(question, two, "Server");
+    expect(deselected.selectedOptionValues).toEqual(["Desktop"]);
+  });
 });
 
 describe("buildPendingUserInputAnswers", () => {

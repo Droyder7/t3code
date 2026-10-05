@@ -1607,7 +1607,18 @@ export function togglePendingUserInputOptionSelection(
       question,
       draft?.selectedOptionValues,
     );
-    const nextSelectedOptionValues = selectedOptionValues.includes(resolvedOptionValue)
+    const isSelected = selectedOptionValues.includes(resolvedOptionValue);
+    if (
+      !isSelected &&
+      question.maxItems !== undefined &&
+      selectedOptionValues.length >= question.maxItems
+    ) {
+      return {
+        customAnswer: "",
+        ...(selectedOptionValues.length > 0 ? { selectedOptionValues } : {}),
+      };
+    }
+    const nextSelectedOptionValues = isSelected
       ? selectedOptionValues.filter((value) => value !== resolvedOptionValue)
       : [...selectedOptionValues, resolvedOptionValue];
 
