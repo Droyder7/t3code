@@ -37,7 +37,7 @@ export type UserInputAnswersValidation =
   | { readonly ok: true }
   | { readonly ok: false; readonly questionId: string; readonly message: string };
 
-export function isMissingUserInputAnswer(rawAnswer: unknown): boolean {
+function isMissingUserInputAnswer(rawAnswer: unknown): boolean {
   return rawAnswer === undefined || rawAnswer === null;
 }
 
