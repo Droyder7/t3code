@@ -7667,12 +7667,18 @@ export function makeAcpAdapterV2(
                               AcpSessionRuntime.isAcpCancellationTimeoutError(error)
                                 ? Effect.gen(function* () {
                                     // Cancellation timed out, and the session runtime forcibly
-                                    // retired the process. Settle the turn here instead of
-                                    // depending on the dying prompt fiber, and flag the runtime
-                                    // for replacement so the next turn spawns a fresh process.
+                                    // retired the process. A retired session cannot carry
+                                    // subagents into a replacement runtime, so quarantine this
+                                    // run and terminalize any carryover before settling.
+                                    const timeoutCarryover = yield* Ref.getAndSet(
+                                      carryoverSubagents,
+                                      null,
+                                    );
+                                    yield* quarantineStoppedRun();
                                     if (!context.finalized) {
                                       yield* finalizeTurn(context, "interrupted");
                                     }
+                                    yield* terminalizeCarryoverSubagents(timeoutCarryover);
                                     yield* Ref.set(runtimeRestartRequired, true);
                                     yield* Effect.logWarning(
                                       "orchestration-v2.acp-cancel-retired-on-timeout",
