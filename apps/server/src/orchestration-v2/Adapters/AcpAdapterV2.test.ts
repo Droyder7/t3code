@@ -3696,6 +3696,8 @@ describe("AcpAdapterV2", () => {
             Stream.runHead,
           ),
         );
+        // In T3 Code orchestration, user-initiated stops settle turns with terminal status "interrupted"
+        // (which satisfies the user-facing cancellation requirement of #14619).
         assert.equal(terminal.type === "turn.terminal" && terminal.status, "interrupted");
         yield* runtime.startTurn(
           makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now, ordinal: 2 }),
@@ -3917,6 +3919,8 @@ describe("AcpAdapterV2", () => {
           }
         }
         yield* Fiber.join(interrupt);
+        // In T3 Code orchestration, user-initiated stops settle turns with terminal status "interrupted"
+        // (which satisfies the user-facing cancellation requirement of #14619).
         assert.equal(terminalStatus, "interrupted");
         if (subagentStatus !== "interrupted") {
           // The prompt-failure handler can finalize the turn before the catch
