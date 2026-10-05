@@ -1938,6 +1938,7 @@ const multiSelectQuestion = {
   options: [
     { label: "Orders", description: "Receipts" },
     { label: "Listings", description: "Inventory" },
+    { label: "Customers", description: "Accounts" },
   ],
   multiSelect: true,
 } as const;

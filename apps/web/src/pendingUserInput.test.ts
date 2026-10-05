@@ -38,6 +38,14 @@ const multiSelectQuestion = {
       label: "Web",
       description: "Web",
     },
+    {
+      label: "Desktop",
+      description: "Desktop",
+    },
+    {
+      label: "Customers",
+      description: "Customers",
+    },
   ],
   multiSelect: true,
 } as const;
@@ -159,7 +167,7 @@ describe("togglePendingUserInputOptionSelection", () => {
     const two = togglePendingUserInputOptionSelection(question, one, "Desktop");
     expect(two.selectedOptionValues).toEqual(["Server", "Desktop"]);
 
-    const three = togglePendingUserInputOptionSelection(question, two, "Web");
+    const three = togglePendingUserInputOptionSelection(question, two, "Customers");
     expect(three.selectedOptionValues).toEqual(["Server", "Desktop"]);
 
     const deselected = togglePendingUserInputOptionSelection(question, two, "Server");

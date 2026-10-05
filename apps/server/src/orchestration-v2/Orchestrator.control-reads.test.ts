@@ -664,84 +664,90 @@ it.effect("keeps a live user input request pending when answers violate question
         lastError: null,
       },
     });
-    const requestId = RuntimeRequestId.make("request:elicitation-validation");
-    const nodeId = NodeId.make("node:elicitation-validation");
-    yield* projections.apply({
-      id: EventId.make("request:elicitation-validation"),
-      type: "runtime-request.updated",
-      threadId,
-      occurredAt: now,
-      payload: {
-        id: requestId,
-        nodeId,
-        providerTurnId: null,
-        nativeRequestRef: null,
-        kind: "user_input",
-        status: "pending",
-        responseCapability: { type: "live", providerSessionId: sessionId },
-        createdAt: now,
-        resolvedAt: null,
-      },
-    });
-    yield* projections.apply({
-      id: EventId.make("node:elicitation-validation"),
-      type: "node.updated",
-      threadId,
-      occurredAt: now,
-      payload: {
-        id: nodeId,
-        threadId,
-        runId: null,
-        parentNodeId: null,
-        rootNodeId: nodeId,
-        kind: "user_input_request",
-        status: "waiting",
-        countsForRun: false,
-        providerThreadId: null,
-        providerTurnId: null,
-        nativeItemRef: null,
-        runtimeRequestId: requestId,
-        checkpointScopeId: null,
-        startedAt: now,
-        completedAt: null,
-      },
-    });
-    yield* projections.apply({
-      id: EventId.make("item:elicitation-validation"),
-      type: "turn-item.updated",
-      threadId,
-      occurredAt: now,
-      payload: {
-        id: TurnItemId.make("item:elicitation-validation"),
-        threadId,
-        runId: null,
-        nodeId,
-        providerThreadId: null,
-        providerTurnId: null,
-        nativeItemRef: null,
-        parentItemId: null,
-        ordinal: 1,
-        status: "waiting",
-        title: null,
-        startedAt: now,
-        completedAt: null,
-        updatedAt: now,
-        type: "user_input_request",
-        requestId,
-        questions: [
-          {
-            id: "port",
-            header: "Port",
-            question: "Which port?",
-            options: [],
-            valueType: "integer",
-            minimum: 1,
-            maximum: 10,
-            required: true,
+    const registerPendingPortQuestion = (suffix: string) =>
+      Effect.gen(function* () {
+        const requestId = RuntimeRequestId.make(`request:${suffix}`);
+        const nodeId = NodeId.make(`node:${suffix}`);
+        yield* projections.apply({
+          id: EventId.make(`request:${suffix}`),
+          type: "runtime-request.updated",
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: requestId,
+            nodeId,
+            providerTurnId: null,
+            nativeRequestRef: null,
+            kind: "user_input",
+            status: "pending",
+            responseCapability: { type: "live", providerSessionId: sessionId },
+            createdAt: now,
+            resolvedAt: null,
           },
-        ],
-      },
-    });
+        });
+        yield* projections.apply({
+          id: EventId.make(`node:${suffix}`),
+          type: "node.updated",
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: nodeId,
+            threadId,
+            runId: null,
+            parentNodeId: null,
+            rootNodeId: nodeId,
+            kind: "user_input_request",
+            status: "waiting",
+            countsForRun: false,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            runtimeRequestId: requestId,
+            checkpointScopeId: null,
+            startedAt: now,
+            completedAt: null,
+          },
+        });
+        yield* projections.apply({
+          id: EventId.make(`item:${suffix}`),
+          type: "turn-item.updated",
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: TurnItemId.make(`item:${suffix}`),
+            threadId,
+            runId: null,
+            nodeId,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 1,
+            status: "waiting",
+            title: null,
+            startedAt: now,
+            completedAt: null,
+            updatedAt: now,
+            type: "user_input_request",
+            requestId,
+            questions: [
+              {
+                id: "port",
+                header: "Port",
+                question: "Which port?",
+                options: [],
+                valueType: "integer",
+                minimum: 1,
+                maximum: 10,
+                required: true,
+              },
+            ],
+          },
+        });
+        return requestId;
+      });
+
+    const requestId = yield* registerPendingPortQuestion("elicitation-validation");
 
     const rejected = yield* orchestrator
       .dispatch({
@@ -755,6 +761,18 @@ it.effect("keeps a live user input request pending when answers violate question
     assert.include(String(rejected.cause), "Port");
     assert.equal((yield* projections.getRuntimeRequest(threadId, requestId))?.status, "pending");
 
+    // A form-accepting response that omits answers entirely is validated the same way.
+    const omitted = yield* orchestrator
+      .dispatch({
+        type: "runtime-request.respond",
+        commandId: CommandId.make("respond-elicitation-omitted"),
+        threadId,
+        requestId,
+      })
+      .pipe(Effect.flip);
+    assert.include(String(omitted.cause), "Port");
+    assert.equal((yield* projections.getRuntimeRequest(threadId, requestId))?.status, "pending");
+
     yield* orchestrator.dispatch({
       type: "runtime-request.respond",
       commandId: CommandId.make("respond-elicitation-valid"),
@@ -763,5 +781,18 @@ it.effect("keeps a live user input request pending when answers violate question
       answers: { port: "5" },
     });
     assert.equal((yield* projections.getRuntimeRequest(threadId, requestId))?.status, "resolved");
+
+    // Explicit cancellation without answers bypasses validation and resolves as cancelled.
+    const cancelRequestId = yield* registerPendingPortQuestion("elicitation-cancel");
+    yield* orchestrator.dispatch({
+      type: "runtime-request.respond",
+      commandId: CommandId.make("respond-elicitation-cancel"),
+      threadId,
+      requestId: cancelRequestId,
+      decision: "cancel",
+    });
+    const cancelContext = yield* projections.getRuntimeResponseContext(threadId, cancelRequestId);
+    assert.equal(cancelContext.request?.status, "resolved");
+    assert.equal(cancelContext.node?.status, "cancelled");
   }).pipe(Effect.provide(testLayer)),
 );

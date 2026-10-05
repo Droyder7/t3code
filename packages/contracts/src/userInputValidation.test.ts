@@ -145,4 +145,111 @@ describe("normalizeUserInputAnswer", () => {
       message: "Enter a valid value.",
     });
   });
+
+  it("stringifies primitive entries in untyped arrays and drops the rest", () => {
+    expect(normalizeUserInputAnswer(question(), ["a", 1, true])).toEqual({
+      ok: true,
+      value: ["a", "1", "true"],
+    });
+    expect(normalizeUserInputAnswer(question(), ["a", { nope: true }, null, "b"])).toEqual({
+      ok: true,
+      value: ["a", "b"],
+    });
+  });
+
+  it("rejects answers outside a fixed option list", () => {
+    const fixed = question({
+      allowCustomAnswer: false,
+      options: [
+        { label: "Server", value: "srv" },
+        { label: "Web", value: "web" },
+      ],
+    });
+    expect(normalizeUserInputAnswer(fixed, "srv")).toEqual({ ok: true, value: "srv" });
+    expect(normalizeUserInputAnswer(fixed, "bogus")).toEqual({
+      ok: false,
+      message: "Choose from the provided options.",
+    });
+    expect(
+      normalizeUserInputAnswer(question({ ...fixed, valueType: "array" }), ["srv", "bogus"]),
+    ).toEqual({ ok: false, message: "Choose from the provided options." });
+    expect(
+      normalizeUserInputAnswer(question({ ...fixed, valueType: "array" }), ["srv", "web"]),
+    ).toEqual({ ok: true, value: ["srv", "web"] });
+  });
+
+  it("rejects a boolean answer outside a narrowed boolean domain", () => {
+    const onlyTrue = question({
+      valueType: "boolean",
+      allowCustomAnswer: false,
+      options: [{ label: "true", value: "true" }],
+    });
+    expect(normalizeUserInputAnswer(onlyTrue, "true")).toEqual({ ok: true, value: true });
+    expect(normalizeUserInputAnswer(onlyTrue, "false")).toEqual({
+      ok: false,
+      message: "Choose from the provided options.",
+    });
+  });
+
+  it("matches valueless options by label and leaves custom-answer questions open", () => {
+    const byLabel = question({
+      allowCustomAnswer: false,
+      options: [{ label: "Server" }, { label: "Web" }],
+    });
+    expect(normalizeUserInputAnswer(byLabel, "Web")).toEqual({ ok: true, value: "Web" });
+    expect(normalizeUserInputAnswer(byLabel, "Other")).toEqual({
+      ok: false,
+      message: "Choose from the provided options.",
+    });
+    const open = question({
+      options: [{ label: "Server" }],
+    });
+    expect(normalizeUserInputAnswer(open, "Anything")).toEqual({ ok: true, value: "Anything" });
+  });
+
+  it("ignores patterns that could backtrack catastrophically", () => {
+    const dangerous = [
+      "^(a+)+$",
+      "^(a|aa)+$",
+      "^(\\w+\\s?)*$",
+      "^((a+)b)*$",
+      ".*a.*b.*c.*d.*",
+      "(a)\\1",
+      "(?<=x)a",
+      "a{1,99999}",
+    ];
+    for (const pattern of dangerous) {
+      expect(
+        normalizeUserInputAnswer(question({ valueType: "string", pattern }), "anything"),
+      ).toEqual({
+        ok: true,
+        value: "anything",
+      });
+    }
+  });
+
+  it("still enforces patterns that pass the safety screen", () => {
+    expect(
+      normalizeUserInputAnswer(question({ valueType: "string", pattern: "^[a-z]+$" }), "Nope"),
+    ).toEqual({ ok: false, message: "Enter a value in the expected format." });
+    expect(
+      normalizeUserInputAnswer(
+        question({ valueType: "string", pattern: "^\\d+\\.\\d+\\.\\d+$" }),
+        "1.2.3",
+      ),
+    ).toEqual({ ok: true, value: "1.2.3" });
+    expect(
+      normalizeUserInputAnswer(
+        question({ valueType: "string", pattern: "^\\d+\\.\\d+\\.\\d+$" }),
+        "1.2.x",
+      ),
+    ).toEqual({ ok: false, message: "Enter a value in the expected format." });
+  });
+
+  it("skips pattern checks for answers beyond the length cap", () => {
+    const longAnswer = "a".repeat(300);
+    expect(
+      normalizeUserInputAnswer(question({ valueType: "string", pattern: "^[a-z]+$" }), longAnswer),
+    ).toEqual({ ok: true, value: longAnswer });
+  });
 });

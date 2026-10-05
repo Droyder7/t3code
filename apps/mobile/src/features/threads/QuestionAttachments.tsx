@@ -12,6 +12,7 @@ import { pickComposerFiles, pickComposerMedia } from "../../lib/composerImages";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useNavigation } from "@react-navigation/native";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
+import { pendingUserInputKeyboardType } from "./pendingUserInputLayout";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
 import { useServerConfigs } from "../../state/entities";
 import { appAtomRegistry } from "../../state/atom-registry";
@@ -193,13 +194,7 @@ export function QuestionAttachments(props: {
           onChangeText={props.onChangeText}
           onFocus={() => props.onInputFocusChange?.(true)}
           onBlur={() => props.onInputFocusChange?.(false)}
-          keyboardType={
-            props.question.valueType === "integer"
-              ? "number-pad"
-              : props.question.valueType === "number"
-                ? "decimal-pad"
-                : "default"
-          }
+          keyboardType={pendingUserInputKeyboardType(props.question)}
           placeholder="Or type a custom answer"
           className="min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground"
         />

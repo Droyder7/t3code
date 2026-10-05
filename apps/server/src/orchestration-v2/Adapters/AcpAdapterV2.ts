@@ -1175,10 +1175,22 @@ export function parseElicitationQuestions(params: {
           options = parseEnumOptions(itemsRecord.enum);
         }
       } else if (record?.type === "boolean") {
-        options = [
-          { label: "true", description: "Yes", value: "true" },
-          { label: "false", description: "No", value: "false" },
-        ];
+        // An enum narrows the boolean domain (e.g. only `true` is acceptable); without one
+        // both choices are offered. Non-boolean enum entries cannot be answered, so they
+        // are dropped, and an enum with no booleans at all falls back to both choices.
+        const enumBooleans = Array.isArray(record?.enum)
+          ? [
+              ...new Set(
+                record.enum.filter((entry): entry is boolean => typeof entry === "boolean"),
+              ),
+            ]
+          : [];
+        const allowed = enumBooleans.length > 0 ? enumBooleans : [true, false];
+        options = allowed.map((entry) => ({
+          label: String(entry),
+          description: entry ? "Yes" : "No",
+          value: String(entry),
+        }));
       } else {
         const choiceList = record?.oneOf ?? record?.anyOf;
         if (Array.isArray(choiceList)) {

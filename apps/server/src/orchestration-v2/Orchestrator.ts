@@ -6896,14 +6896,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
       // Live user input answers are rejected before anything commits, so the request stays
-      // pending and the form stays open for correction. Message-mode answers keep their own
-      // string validation below.
+      // pending and the form stays open for correction. A form-accepting response validates
+      // even when answers are omitted entirely; explicit cancellation or decline skips it.
+      // Message-mode answers keep their own string validation below.
       if (
-        command.answers !== undefined &&
         runtimeRequest.responseCapability.type === "live" &&
-        context.item?.type === "user_input_request"
+        context.item?.type === "user_input_request" &&
+        command.decision !== "cancel" &&
+        command.decision !== "decline"
       ) {
-        const validation = validateUserInputAnswers(context.item.questions, command.answers);
+        const validation = validateUserInputAnswers(context.item.questions, command.answers ?? {});
         if (!validation.ok) {
           const failedQuestion = context.item.questions.find(
             (question) => question.id === validation.questionId,

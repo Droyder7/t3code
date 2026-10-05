@@ -325,6 +325,75 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     ]);
   });
 
+  it("narrows boolean options to the declared enum domain", () => {
+    const questions = parseElicitationQuestions({
+      message: "Confirm",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          mustAccept: { type: "boolean", enum: [true], title: "Accept terms" },
+          both: { type: "boolean" },
+          emptyEnum: { type: "boolean", enum: ["yes"] },
+        },
+      },
+    });
+
+    assert.deepEqual(questions[0]?.options, [{ label: "true", description: "Yes", value: "true" }]);
+    assert.deepEqual(questions[1]?.options, [
+      { label: "true", description: "Yes", value: "true" },
+      { label: "false", description: "No", value: "false" },
+    ]);
+    // An enum without boolean entries cannot be answered, so both choices stay available.
+    assert.deepEqual(questions[2]?.options, [
+      { label: "true", description: "Yes", value: "true" },
+      { label: "false", description: "No", value: "false" },
+    ]);
+
+    const content = elicitationContent({ mustAccept: "false" }, questions);
+    assert.isFalse("mustAccept" in content);
+    assert.deepEqual(resolveElicitationResponse({ answers: { mustAccept: "false" }, questions }), {
+      action: "accept",
+      content: {},
+    });
+  });
+
+  it("rejects answers outside a fixed option list during serialization", () => {
+    const questions = parseElicitationQuestions({
+      message: "Pick",
+      requestedSchema: {
+        type: "object",
+        required: ["target"],
+        properties: {
+          target: {
+            type: "string",
+            oneOf: [
+              { const: "us-east-1", title: "US East" },
+              { const: "eu-west-1", title: "EU West" },
+            ],
+          },
+          tags: {
+            type: "array",
+            items: { type: "string", enum: ["a", "b"] },
+          },
+        },
+      },
+    });
+
+    // An out-of-domain scalar on a required question declines rather than sending it.
+    assert.deepEqual(resolveElicitationResponse({ answers: { target: "mars" }, questions }), {
+      action: "decline",
+    });
+    // Out-of-domain multi-select entries are rejected per item.
+    assert.deepEqual(elicitationContent({ target: "us-east-1", tags: ["a", "mars"] }, questions), {
+      target: "us-east-1",
+    });
+    // Declared values pass through untouched.
+    assert.deepEqual(
+      resolveElicitationResponse({ answers: { target: "eu-west-1", tags: ["a", "b"] }, questions }),
+      { action: "accept", content: { target: "eu-west-1", tags: ["a", "b"] } },
+    );
+  });
+
   it("skips empty choice options and does not emit blank values or labels while preserving nonblank whitespace", () => {
     const questions = parseElicitationQuestions({
       message: "Select option",
