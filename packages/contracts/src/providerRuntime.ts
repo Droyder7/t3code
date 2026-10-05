@@ -496,6 +496,15 @@ export const UserInputQuestion = Schema.Struct({
   ),
   minItems: Schema.optional(NonNegativeInt),
   maxItems: Schema.optional(NonNegativeInt),
+  valueType: Schema.optional(Schema.Literals(["string", "number", "integer", "boolean", "array"])),
+  minimum: Schema.optional(Schema.Number),
+  maximum: Schema.optional(Schema.Number),
+  exclusiveMinimum: Schema.optional(Schema.Number),
+  exclusiveMaximum: Schema.optional(Schema.Number),
+  minLength: Schema.optional(NonNegativeInt),
+  maxLength: Schema.optional(NonNegativeInt),
+  pattern: Schema.optional(Schema.String),
+  required: Schema.optional(Schema.Boolean),
 });
 export type UserInputQuestion = typeof UserInputQuestion.Type;
 

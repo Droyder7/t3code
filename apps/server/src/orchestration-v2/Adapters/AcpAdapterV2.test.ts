@@ -181,6 +181,16 @@ describe("acpToolCallDiffPatch", () => {
 });
 
 describe("ACP elicitation question parsing and answer serialization", () => {
+  type ElicitationQuestion = ReturnType<typeof parseElicitationQuestions>[number];
+  const elicitationQuestion = (
+    overrides: Partial<ElicitationQuestion> & { readonly id: string },
+  ): ElicitationQuestion => ({
+    header: "Question",
+    question: "Question",
+    options: [],
+    ...overrides,
+  });
+
   it("parses multi-select questions with items.oneOf options and forbids custom answers", () => {
     const questions = parseElicitationQuestions({
       message: "Please select packages",
@@ -213,8 +223,10 @@ describe("ACP elicitation question parsing and answer serialization", () => {
           { label: "Server", description: "Backend server", value: "@t3tools/server" },
           { label: "Desktop", description: "Desktop app", value: "@t3tools/desktop" },
         ],
+        valueType: "array",
         multiSelect: true,
         allowCustomAnswer: false,
+        required: true,
       },
     ]);
   });
@@ -245,8 +257,10 @@ describe("ACP elicitation question parsing and answer serialization", () => {
           { label: "staging", description: "staging", value: "staging" },
           { label: "production", description: "production", value: "production" },
         ],
+        valueType: "array",
         multiSelect: true,
         allowCustomAnswer: false,
+        required: false,
       },
     ]);
   });
@@ -286,12 +300,15 @@ describe("ACP elicitation question parsing and answer serialization", () => {
           { label: "EU West", description: "EU West", value: "eu-west-1" },
         ],
         allowCustomAnswer: false,
+        required: false,
       },
       {
         id: "freeform",
         header: "Notes",
         question: "Choose deploy target",
         options: [],
+        valueType: "string",
+        required: false,
       },
       {
         id: "confirmation",
@@ -301,7 +318,9 @@ describe("ACP elicitation question parsing and answer serialization", () => {
           { label: "true", description: "Yes", value: "true" },
           { label: "false", description: "No", value: "false" },
         ],
+        valueType: "boolean",
         allowCustomAnswer: false,
+        required: false,
       },
     ]);
   });
@@ -334,7 +353,9 @@ describe("ACP elicitation question parsing and answer serialization", () => {
         header: "Question 1",
         question: "Select option",
         options: [{ label: "Valid Option", description: "Good choice", value: " valid " }],
+        valueType: "string",
         allowCustomAnswer: false,
+        required: false,
       },
       {
         id: "enumChoice",
@@ -347,7 +368,9 @@ describe("ACP elicitation question parsing and answer serialization", () => {
             value: " option with space ",
           },
         ],
+        valueType: "string",
         allowCustomAnswer: false,
+        required: false,
       },
     ]);
   });
@@ -379,31 +402,72 @@ describe("ACP elicitation question parsing and answer serialization", () => {
           { label: "first", description: "first", value: "first" },
           { label: "second", description: "second", value: "second" },
         ],
+        valueType: "array",
         maxItems: 1,
         allowCustomAnswer: false,
+        required: false,
       },
     ]);
   });
 
+  it("clamps minimum item counts for optionless arrays to what a typed answer can satisfy", () => {
+    const questions = parseElicitationQuestions({
+      message: "Add tags",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          tags: { type: "array", minItems: 3, maxItems: 0 },
+        },
+      },
+    });
+
+    assert.equal(questions[0]?.minItems, 1);
+    assert.equal(questions[0]?.maxItems, 1);
+    const content = elicitationContent({ tags: "solo" }, questions);
+    assert.deepEqual(content, { tags: ["solo"] });
+  });
+
   it("coerces answers in elicitationContent based on property schema types and constraints", () => {
-    const properties = {
-      isFast: { type: "boolean" },
-      port: { type: "integer" },
-      floatPort: { type: "integer" },
-      boundedNumber: { type: "number", minimum: 10, maximum: 50 },
-      underMin: { type: "number", minimum: 10 },
-      overMax: { type: "number", maximum: 50 },
-      invalidPort: { type: "number" },
-      tags: { type: "array" },
-      singleTag: { type: "array" },
-      limitedTagsFail: { type: "array", maxItems: 2 },
-      limitedTagsPass: { type: "array", maxItems: 2 },
-      minTagsPass: { type: "array", minItems: 2 },
-      minTagsFail: { type: "array", minItems: 2 },
-      title: { type: "string" },
-      fromArray: { type: "string" },
-      untyped: {},
-    };
+    const questions = parseElicitationQuestions({
+      message: "Configure",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          isFast: { type: "boolean" },
+          port: { type: "integer" },
+          floatPort: { type: "integer" },
+          boundedNumber: { type: "number", minimum: 10, maximum: 50 },
+          underMin: { type: "number", minimum: 10 },
+          overMax: { type: "number", maximum: 50 },
+          invalidPort: { type: "number" },
+          tags: { type: "array" },
+          singleTag: { type: "array" },
+          limitedTagsFail: {
+            type: "array",
+            maxItems: 2,
+            items: { type: "string", enum: ["tag1", "tag2", "tag3"] },
+          },
+          limitedTagsPass: {
+            type: "array",
+            maxItems: 2,
+            items: { type: "string", enum: ["tag1", "tag2"] },
+          },
+          minTagsPass: {
+            type: "array",
+            minItems: 2,
+            items: { type: "string", enum: ["tag1", "tag2"] },
+          },
+          minTagsFail: {
+            type: "array",
+            minItems: 2,
+            items: { type: "string", enum: ["tag1", "tag2"] },
+          },
+          title: { type: "string" },
+          fromArray: { type: "string" },
+          untyped: {},
+        },
+      },
+    });
 
     const content = elicitationContent(
       {
@@ -425,7 +489,7 @@ describe("ACP elicitation question parsing and answer serialization", () => {
         untyped: "value",
         unknownKey: "discarded",
       },
-      properties,
+      questions,
     );
 
     assert.deepEqual(content, {
@@ -489,59 +553,84 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     assert.equal(questions[0]?.question, "Target port (between 1024 and 65535)");
     assert.equal(questions[1]?.question, "Please configure settings (minimum 1)");
     assert.equal(questions[2]?.question, "Please configure settings (maximum 10)");
+    assert.equal(questions[0]?.valueType, "integer");
+    assert.equal(questions[0]?.minimum, 1024);
+    assert.equal(questions[0]?.maximum, 65535);
+    assert.equal(questions[1]?.valueType, "number");
+    assert.equal(questions[1]?.minimum, 1);
+    assert.equal(questions[3]?.valueType, "array");
     assert.equal(questions[3]?.minItems, 1);
     assert.equal(questions[3]?.maxItems, 5);
-    assert.isUndefined(questions[0]?.required);
-    assert.isUndefined(questions[3]?.required);
+    assert.isFalse(questions[0]?.required);
+    assert.isFalse(questions[3]?.required);
   });
 
   it("resolves elicitation responses for cancel, accept, and decline on missing required fields", () => {
-    const properties = {
-      name: { type: "string" },
-      port: { type: "integer", minimum: 1024, maximum: 65535 },
-      tags: { type: "array", maxItems: 2 },
-    };
-
     // 1. Cancel on null answers
     const cancelResult = resolveElicitationResponse({
       answers: null,
-      properties,
-      requiredKeys: ["name"],
+      questions: [elicitationQuestion({ id: "name", valueType: "string", required: true })],
     });
     assert.deepEqual(cancelResult, { action: "cancel" });
 
     // 2. Accept when all required keys pass
     const acceptResult = resolveElicitationResponse({
       answers: { name: "my-app", port: "8080", tags: ["a"] },
-      properties,
-      requiredKeys: ["name", "port"],
+      questions: [
+        elicitationQuestion({ id: "name", valueType: "string", required: true }),
+        elicitationQuestion({
+          id: "port",
+          valueType: "integer",
+          minimum: 1024,
+          maximum: 65535,
+          required: true,
+        }),
+        elicitationQuestion({ id: "tags", valueType: "array", maxItems: 2 }),
+      ],
     });
     assert.deepEqual(acceptResult, {
       action: "accept",
       content: { name: "my-app", port: 8080, tags: ["a"] },
     });
 
-    // 3. Decline when a required property value violates schema constraint and gets omitted
+    // 3. Decline when a required property value violates a constraint and gets omitted
     const declineResult = resolveElicitationResponse({
       answers: { name: "my-app", port: "100" }, // 100 < minimum 1024 -> omitted
-      properties,
-      requiredKeys: ["port"],
+      questions: [
+        elicitationQuestion({ id: "name", valueType: "string", required: true }),
+        elicitationQuestion({
+          id: "port",
+          valueType: "integer",
+          minimum: 1024,
+          maximum: 65535,
+          required: true,
+        }),
+      ],
     });
     assert.deepEqual(declineResult, { action: "decline" });
 
     // 4. Decline when an array exceeds maxItems on a required field
     const declineArrayResult = resolveElicitationResponse({
       answers: { tags: ["a", "b", "c"] }, // 3 > maxItems 2 -> omitted
-      properties,
-      requiredKeys: ["tags"],
+      questions: [
+        elicitationQuestion({ id: "tags", valueType: "array", maxItems: 2, required: true }),
+      ],
     });
     assert.deepEqual(declineArrayResult, { action: "decline" });
 
-    // 5. Accept when only optional property value is omitted due to constraint violation
+    // 5. Accept when only an optional property value is omitted due to a constraint violation
     const acceptOptionalOmitResult = resolveElicitationResponse({
       answers: { name: "my-app", port: "100" }, // port violates, but port is optional
-      properties,
-      requiredKeys: ["name"],
+      questions: [
+        elicitationQuestion({ id: "name", valueType: "string", required: true }),
+        elicitationQuestion({
+          id: "port",
+          valueType: "integer",
+          minimum: 1024,
+          maximum: 65535,
+          required: false,
+        }),
+      ],
     });
     assert.deepEqual(acceptOptionalOmitResult, {
       action: "accept",

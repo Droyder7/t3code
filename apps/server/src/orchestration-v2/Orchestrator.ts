@@ -44,6 +44,7 @@ import {
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
   orchestrationV2RunWorkStartedAt,
+  validateUserInputAnswers,
   ProviderInstanceId,
   type ProviderSessionId,
   RunId,
@@ -6893,6 +6894,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandType: command.type,
           cause: `Provider session ${providerSessionId} was not found.`,
         });
+      }
+      // Live user input answers are rejected before anything commits, so the request stays
+      // pending and the form stays open for correction. Message-mode answers keep their own
+      // string validation below.
+      if (
+        command.answers !== undefined &&
+        runtimeRequest.responseCapability.type === "live" &&
+        context.item?.type === "user_input_request"
+      ) {
+        const validation = validateUserInputAnswers(context.item.questions, command.answers);
+        if (!validation.ok) {
+          const failedQuestion = context.item.questions.find(
+            (question) => question.id === validation.questionId,
+          );
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause:
+              failedQuestion === undefined
+                ? validation.message
+                : `${failedQuestion.header}: ${validation.message}`,
+          });
+        }
       }
 
       const now = yield* DateTime.now;

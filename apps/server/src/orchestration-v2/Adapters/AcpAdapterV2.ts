@@ -2,6 +2,7 @@
 import * as NodePath from "node:path";
 
 import {
+  normalizeUserInputAnswer,
   type ChatAttachment,
   type ModelSelection,
   type OrchestrationV2ConversationMessage,
@@ -1151,6 +1152,10 @@ export function parseElicitationQuestions(params: {
 }): Array<OrchestrationV2UserInputQuestion> {
   const requestedSchema = unknownRecord(params.requestedSchema);
   const properties = unknownRecord(requestedSchema?.properties) ?? {};
+  const requiredList = Array.isArray(requestedSchema?.required)
+    ? requestedSchema.required.filter((item): item is string => typeof item === "string")
+    : [];
+  const requiredKeys = new Set(requiredList);
   return Object.entries(properties).map(
     ([id, property], index): OrchestrationV2UserInputQuestion => {
       const record = unknownRecord(property);
@@ -1208,6 +1213,30 @@ export function parseElicitationQuestions(params: {
         isArray && Number.isInteger(record?.maxItems) && (record!.maxItems as number) >= 0
           ? (record!.maxItems as number)
           : undefined;
+      // Optionless arrays can only receive one typed answer, so clamp their effective item bounds
+      // to what that answer can satisfy; the UI, validator, and adapter all read the clamped model.
+      const effectiveMinItems =
+        minItems !== undefined && options.length === 0 ? Math.min(minItems, 1) : minItems;
+      const effectiveMaxItems =
+        maxItems !== undefined && options.length === 0 ? Math.max(maxItems, 1) : maxItems;
+      const isNumberType = declaredType === "number" || declaredType === "integer";
+      const isStringType = declaredType === "string";
+      const valueType =
+        declaredType === "string" ||
+        declaredType === "number" ||
+        declaredType === "integer" ||
+        declaredType === "boolean" ||
+        declaredType === "array"
+          ? declaredType
+          : undefined;
+      const minLength =
+        isStringType && Number.isInteger(record?.minLength) && (record!.minLength as number) >= 0
+          ? (record!.minLength as number)
+          : undefined;
+      const maxLength =
+        isStringType && Number.isInteger(record?.maxLength) && (record!.maxLength as number) >= 0
+          ? (record!.maxLength as number)
+          : undefined;
 
       return {
         id,
@@ -1215,100 +1244,51 @@ export function parseElicitationQuestions(params: {
         question: questionText,
         options,
         ...(multiSelect ? { multiSelect: true } : {}),
-        ...(minItems !== undefined ? { minItems } : {}),
-        ...(maxItems !== undefined ? { maxItems } : {}),
+        ...(valueType !== undefined ? { valueType } : {}),
+        ...(isNumberType && typeof record?.minimum === "number" ? { minimum: record.minimum } : {}),
+        ...(isNumberType && typeof record?.maximum === "number" ? { maximum: record.maximum } : {}),
+        ...(isNumberType && typeof record?.exclusiveMinimum === "number"
+          ? { exclusiveMinimum: record.exclusiveMinimum }
+          : {}),
+        ...(isNumberType && typeof record?.exclusiveMaximum === "number"
+          ? { exclusiveMaximum: record.exclusiveMaximum }
+          : {}),
+        ...(minLength !== undefined ? { minLength } : {}),
+        ...(maxLength !== undefined ? { maxLength } : {}),
+        ...(isStringType && typeof record?.pattern === "string" && record.pattern.length > 0
+          ? { pattern: record.pattern }
+          : {}),
+        ...(effectiveMinItems !== undefined ? { minItems: effectiveMinItems } : {}),
+        ...(effectiveMaxItems !== undefined ? { maxItems: effectiveMaxItems } : {}),
         ...(allowCustomAnswer !== undefined ? { allowCustomAnswer } : {}),
+        required: requiredKeys.has(id),
       };
     },
   );
 }
 
-// Advanced JSON Schema validation keywords (such as exclusiveMinimum, exclusiveMaximum,
-// pattern, minLength, and maxLength) are intentionally scoped out here; conversational elicitation
-// focuses on core interactive primitives (strings, numbers, booleans, choices, and arrays).
+/**
+ * Coerces answers into ACP elicitation content using the question model. A value that fails
+ * `normalizeUserInputAnswer` is dropped only as a backstop: dispatch validation rejects those
+ * submissions while the form is still open, so reaching a drop here means schema drift.
+ */
 export function elicitationContent(
   answers: ProviderUserInputAnswers,
-  properties: Record<string, unknown>,
+  questions: ReadonlyArray<OrchestrationV2UserInputQuestion>,
 ): Record<string, EffectAcpSchema.ElicitationContentValue> {
   const content: Record<string, EffectAcpSchema.ElicitationContentValue> = {};
-  for (const [key, rawValue] of Object.entries(answers)) {
-    if (!Object.prototype.hasOwnProperty.call(properties, key)) continue;
-    const propSchema = unknownRecord(properties[key]);
-    const declaredType = typeof propSchema?.type === "string" ? propSchema.type : undefined;
-
-    if (declaredType === "boolean") {
-      const first = Array.isArray(rawValue) ? rawValue[0] : rawValue;
-      if (typeof first === "boolean") {
-        content[key] = first;
-      } else if (first === "true") {
-        content[key] = true;
-      } else if (first === "false") {
-        content[key] = false;
-      }
-    } else if (declaredType === "number" || declaredType === "integer") {
-      const first = Array.isArray(rawValue) ? rawValue[0] : rawValue;
-      const num =
-        typeof first === "number"
-          ? first
-          : typeof first === "string" && first.trim().length > 0
-            ? Number(first)
-            : NaN;
-      if (Number.isFinite(num)) {
-        if (declaredType === "integer" && !Number.isInteger(num)) {
-          // Reject floats for integer fields
-        } else if (typeof propSchema?.minimum === "number" && num < propSchema.minimum) {
-          // Reject numbers below minimum
-        } else if (typeof propSchema?.maximum === "number" && num > propSchema.maximum) {
-          // Reject numbers above maximum
-        } else {
-          content[key] = num;
-        }
-      }
-    } else if (declaredType === "array") {
-      let items: string[] = [];
-      if (Array.isArray(rawValue)) {
-        items = rawValue
-          .filter(
-            (entry): entry is string | number | boolean => entry !== null && entry !== undefined,
-          )
-          .map(String);
-      } else if (typeof rawValue === "string" && rawValue.length > 0) {
-        items = [rawValue];
-      }
-      if (typeof propSchema?.maxItems === "number" && items.length > propSchema.maxItems) {
-        // Discard answer if it exceeds the allowed maximum item count
-      } else if (typeof propSchema?.minItems === "number" && items.length < propSchema.minItems) {
-        // Discard answer if it fails the required minimum item count
-      } else {
-        content[key] = items;
-      }
-    } else if (declaredType === "string") {
-      if (typeof rawValue === "string") {
-        content[key] = rawValue;
-      } else if (Array.isArray(rawValue) && rawValue.length > 0) {
-        content[key] = String(rawValue[0]);
-      } else if (typeof rawValue === "number" || typeof rawValue === "boolean") {
-        content[key] = String(rawValue);
-      }
-    } else {
-      if (typeof rawValue === "string" || typeof rawValue === "boolean") {
-        content[key] = rawValue;
-      } else if (typeof rawValue === "number") {
-        if (Number.isFinite(rawValue)) {
-          content[key] = rawValue;
-        }
-      } else if (Array.isArray(rawValue)) {
-        content[key] = rawValue.filter((entry): entry is string => typeof entry === "string");
-      }
-    }
+  for (const question of questions) {
+    if (!Object.prototype.hasOwnProperty.call(answers, question.id)) continue;
+    const normalized = normalizeUserInputAnswer(question, answers[question.id]);
+    if (!normalized.ok) continue;
+    content[question.id] = normalized.value;
   }
   return content;
 }
 
 export function resolveElicitationResponse(params: {
   readonly answers: ProviderUserInputAnswers | null;
-  readonly properties: Record<string, unknown>;
-  readonly requiredKeys?: ReadonlyArray<string>;
+  readonly questions: ReadonlyArray<OrchestrationV2UserInputQuestion>;
 }):
   | { readonly action: "cancel" }
   | { readonly action: "decline" }
@@ -1319,11 +1299,12 @@ export function resolveElicitationResponse(params: {
   if (params.answers === null) {
     return { action: "cancel" };
   }
-  const content = elicitationContent(params.answers, params.properties);
-  const requiredKeys = params.requiredKeys ?? [];
-  return requiredKeys.some((key) => !Object.prototype.hasOwnProperty.call(content, key))
-    ? { action: "decline" }
-    : { action: "accept", content };
+  const content = elicitationContent(params.answers, params.questions);
+  const missingRequired = params.questions.some(
+    (question) =>
+      question.required === true && !Object.prototype.hasOwnProperty.call(content, question.id),
+  );
+  return missingRequired ? { action: "decline" } : { action: "accept", content };
 }
 
 interface ActiveTextSegment {
@@ -6034,8 +6015,6 @@ export function makeAcpAdapterV2(
                 // than guessing at their semantics.
                 return { action: "decline" } as const;
               }
-              const requestedSchema = unknownRecord(params.requestedSchema);
-              const properties = unknownRecord(requestedSchema?.properties) ?? {};
               const elicitationScopeId =
                 "sessionId" in params ? params.sessionId : `request:${params.requestId}`;
               const questions = parseElicitationQuestions(params);
@@ -6055,15 +6034,9 @@ export function makeAcpAdapterV2(
                 }),
                 transportRequestId,
               );
-              const requiredKeys = Array.isArray(requestedSchema?.required)
-                ? requestedSchema.required.filter(
-                    (item): item is string => typeof item === "string",
-                  )
-                : [];
               const response = resolveElicitationResponse({
                 answers: userInput.answers,
-                properties,
-                requiredKeys,
+                questions,
               });
               yield* userInput.acknowledgeNativeResponse;
               return response;

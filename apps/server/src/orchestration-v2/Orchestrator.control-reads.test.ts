@@ -622,5 +622,143 @@ it.effect("keeps delegated child pull-request links independent of the parent", 
     const parentAfterChildLink = yield* projections.getThreadProjection(parentThreadId);
     assert.deepEqual(parentAfterChildLink.thread.linkedPullRequest, parentPullRequest);
     assert.deepEqual(parentAfterChildLink.thread.pullRequests, parent.thread.pullRequests);
+it.effect("keeps a live user input request pending when answers violate question constraints", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:elicitation-validation");
+    const now = yield* DateTime.now;
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-elicitation-validation"),
+      threadId,
+      projectId: ProjectId.make("project:elicitation-validation"),
+      title: "Elicitation",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const sessionId = ProviderSessionId.make("session:elicitation-validation");
+    yield* projections.apply({
+      id: EventId.make("attach-elicitation-validation"),
+      type: "provider-session.attached",
+      threadId,
+      occurredAt: now,
+      payload: {
+        id: sessionId,
+        driver: adapter.driver,
+        providerInstanceId: instanceId,
+        status: "ready",
+        cwd: "/repo",
+        model: "gpt-6",
+        capabilities: CodexProviderCapabilitiesV2,
+        createdAt: now,
+        updatedAt: now,
+        lastError: null,
+      },
+    });
+    const requestId = RuntimeRequestId.make("request:elicitation-validation");
+    const nodeId = NodeId.make("node:elicitation-validation");
+    yield* projections.apply({
+      id: EventId.make("request:elicitation-validation"),
+      type: "runtime-request.updated",
+      threadId,
+      occurredAt: now,
+      payload: {
+        id: requestId,
+        nodeId,
+        providerTurnId: null,
+        nativeRequestRef: null,
+        kind: "user_input",
+        status: "pending",
+        responseCapability: { type: "live", providerSessionId: sessionId },
+        createdAt: now,
+        resolvedAt: null,
+      },
+    });
+    yield* projections.apply({
+      id: EventId.make("node:elicitation-validation"),
+      type: "node.updated",
+      threadId,
+      occurredAt: now,
+      payload: {
+        id: nodeId,
+        threadId,
+        runId: null,
+        parentNodeId: null,
+        rootNodeId: nodeId,
+        kind: "user_input_request",
+        status: "waiting",
+        countsForRun: false,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        runtimeRequestId: requestId,
+        checkpointScopeId: null,
+        startedAt: now,
+        completedAt: null,
+      },
+    });
+    yield* projections.apply({
+      id: EventId.make("item:elicitation-validation"),
+      type: "turn-item.updated",
+      threadId,
+      occurredAt: now,
+      payload: {
+        id: TurnItemId.make("item:elicitation-validation"),
+        threadId,
+        runId: null,
+        nodeId,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 1,
+        status: "waiting",
+        title: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+        type: "user_input_request",
+        requestId,
+        questions: [
+          {
+            id: "port",
+            header: "Port",
+            question: "Which port?",
+            options: [],
+            valueType: "integer",
+            minimum: 1,
+            maximum: 10,
+            required: true,
+          },
+        ],
+      },
+    });
+
+    const rejected = yield* orchestrator
+      .dispatch({
+        type: "runtime-request.respond",
+        commandId: CommandId.make("respond-elicitation-invalid"),
+        threadId,
+        requestId,
+        answers: { port: "99" },
+      })
+      .pipe(Effect.flip);
+    assert.include(String(rejected.cause), "Port");
+    assert.equal((yield* projections.getRuntimeRequest(threadId, requestId))?.status, "pending");
+
+    yield* orchestrator.dispatch({
+      type: "runtime-request.respond",
+      commandId: CommandId.make("respond-elicitation-valid"),
+      threadId,
+      requestId,
+      answers: { port: "5" },
+    });
+    assert.equal((yield* projections.getRuntimeRequest(threadId, requestId))?.status, "resolved");
   }).pipe(Effect.provide(testLayer)),
 );
