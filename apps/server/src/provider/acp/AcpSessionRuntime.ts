@@ -85,7 +85,11 @@ const maxStderrChunkLength = 32_768;
 const acpCancellationTimeoutDetail =
   "The ACP agent did not finish cancellation. Its process was stopped.";
 
-/** True only for the cancellation-timeout retirement error raised by `cancel`. */
+/**
+ * True only for the cancellation-timeout retirement error raised by `cancel`.
+ * Matches error fields rather than message text so adapter detection survives
+ * copy edits to the user-facing detail.
+ */
 export function isAcpCancellationTimeoutError(error: EffectAcpErrors.AcpTransportError): boolean {
   return (
     error.operation === "call-rpc" &&

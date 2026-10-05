@@ -3807,6 +3807,151 @@ describe("AcpAdapterV2", () => {
     }).pipe(Effect.provide(testLayer), Effect.scoped),
   );
 
+  it.live(
+    "quarantines a retired runtime and terminalizes a pending subagent when cancellation times out",
+    () =>
+      Effect.gen(function* () {
+        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const path = yield* Path.Path;
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const selfInvocation = yield* resolveSelfInvocation();
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const events = yield* Queue.unbounded<ProviderAdapterV2Event>();
+        const instanceId = ProviderInstanceId.make("acp-native-cancel-subagent");
+        const adapter = makeAcpAdapterV2({
+          crypto: yield* Crypto.Crypto,
+          instanceId,
+          flavor: {
+            driver: ACP_TEST_DRIVER,
+            capabilities: AcpProviderCapabilitiesV2,
+            deferFinalizeForBackgroundWork: true,
+            extractSubagentUpdate: (toolCall) =>
+              toolCall.toolCallId !== "native-cancel-tool"
+                ? undefined
+                : {
+                    nativeTaskId: "task-native-cancel",
+                    prompt: "background subagent",
+                    title: "background subagent",
+                    model: null,
+                    status: "running",
+                    childSessionId: null,
+                    result: null,
+                  },
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner,
+              mockAgentPath: yield* path.fromFileUrl(
+                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+              ),
+              environment: (runtimeOrdinal) =>
+                runtimeOrdinal === 1 ? { T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL: "1" } : {},
+              protocolEvents,
+              cancelBehavior: "wait-for-prompt",
+              cancelTimeout: "100 millis",
+            }),
+          },
+          fileSystem,
+          idAllocator,
+          serverConfig,
+          selfInvocation,
+        });
+        const threadId = ThreadId.make("thread-acp-native-cancel-subagent");
+        const runtimePolicy = ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const modelSelection = { instanceId, model: "default" } as const;
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("session-acp-native-cancel-subagent"),
+          modelSelection,
+          runtimePolicy,
+        });
+        yield* runtime.events.pipe(
+          Stream.runForEach((event) => Queue.offer(events, event)),
+          Effect.forkScoped,
+        );
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const now = yield* DateTime.now;
+        yield* runtime.startTurn(
+          makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now }),
+        );
+        let subagentStarted = false;
+        while (!subagentStarted) {
+          const event = yield* Queue.take(events);
+          if (event.type === "turn_item.updated" && event.turnItem.type === "subagent") {
+            subagentStarted = true;
+          }
+        }
+        const providerTurnId = idAllocator.derive.providerTurn({
+          driver: ACP_TEST_DRIVER,
+          nativeTurnId: acpScopedNativeId(instanceId, "mock-session-1:turn:1"),
+        });
+        const interrupt = yield* runtime
+          .interruptTurn({ providerThread, providerTurnId })
+          .pipe(Effect.forkScoped);
+        yield* Stream.fromQueue(protocolEvents).pipe(
+          Stream.filter(
+            (event) =>
+              event.direction === "incoming" &&
+              typeof event.payload === "string" &&
+              event.payload.includes("native-cancel-received"),
+          ),
+          Stream.runHead,
+        );
+        let subagentStatus: string | null = null;
+        let terminalStatus: string | null = null;
+        while (terminalStatus === null) {
+          const event = yield* Queue.take(events);
+          if (event.type === "turn_item.updated" && event.turnItem.type === "subagent") {
+            subagentStatus = event.turnItem.status;
+          }
+          if (event.type === "turn.terminal" && event.providerTurnId === providerTurnId) {
+            terminalStatus = event.status;
+          }
+        }
+        yield* Fiber.join(interrupt);
+        assert.equal(terminalStatus, "interrupted");
+        if (subagentStatus !== "interrupted") {
+          // The prompt-failure handler can finalize the turn before the catch
+          // runs; the catch then terminalizes the parked carryover afterwards,
+          // so the subagent update can trail the turn terminal.
+          const lateSubagentTerminal = yield* Effect.gen(function* () {
+            while (true) {
+              const event = yield* Queue.take(events);
+              if (event.type === "turn_item.updated" && event.turnItem.type === "subagent") {
+                subagentStatus = event.turnItem.status;
+                if (subagentStatus === "interrupted") return true;
+              }
+            }
+          }).pipe(Effect.timeoutOption("2 seconds"));
+          assert.isTrue(
+            Option.isSome(lateSubagentTerminal),
+            `subagent must be terminalized once cancellation times out (saw ${subagentStatus})`,
+          );
+        }
+        assert.equal(subagentStatus, "interrupted");
+
+        yield* runtime.startTurn(
+          makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now, ordinal: 2 }),
+        );
+        let nextTerminalStatus: string | null = null;
+        while (nextTerminalStatus === null) {
+          const event = yield* Queue.take(events);
+          if (event.type === "turn.terminal" && event.providerTurnId !== providerTurnId) {
+            nextTerminalStatus = event.status;
+          }
+        }
+        assert.equal(nextTerminalStatus, "completed");
+      }).pipe(Effect.provide(testLayer), Effect.scoped),
+  );
+
   it.effect("cancels pending permission requests while interrupting an ACP turn", () =>
     Effect.gen(function* () {
       const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;

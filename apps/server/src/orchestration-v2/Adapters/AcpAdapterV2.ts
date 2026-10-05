@@ -7666,10 +7666,13 @@ export function makeAcpAdapterV2(
                             Effect.catchTag("AcpTransportError", (error) =>
                               AcpSessionRuntime.isAcpCancellationTimeoutError(error)
                                 ? Effect.gen(function* () {
-                                    // Cancellation timed out, and the session runtime forcibly
-                                    // retired the process. A retired session cannot carry
-                                    // subagents into a replacement runtime, so quarantine this
-                                    // run and terminalize any carryover before settling.
+                                    // Cancellation timed out and the runtime forcibly retired
+                                    // the process. Carryover is session-scoped, so parked
+                                    // subagents could never rehydrate into the replacement
+                                    // session and would stay running forever. Capture any
+                                    // carryover first (a prompt-failure finalize may already
+                                    // have parked it), quarantine so finalize terminalizes in
+                                    // place, then terminalize the capture.
                                     const timeoutCarryover = yield* Ref.getAndSet(
                                       carryoverSubagents,
                                       null,
