@@ -3595,7 +3595,7 @@ describe("AcpAdapterV2", () => {
     }).pipe(Effect.provide(testLayer), Effect.scoped),
   );
 
-  it.effect(
+  it.live(
     "finalizes the turn as interrupted and schedules runtime restart when native cancellation times out",
     () =>
       Effect.gen(function* () {
@@ -3619,7 +3619,8 @@ describe("AcpAdapterV2", () => {
               mockAgentPath: yield* path.fromFileUrl(
                 new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
               ),
-              environment: { T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL: "1" },
+              environment: (runtimeOrdinal) =>
+                runtimeOrdinal === 1 ? { T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL: "1" } : {},
               protocolEvents,
               cancelBehavior: "wait-for-prompt",
               cancelTimeout: "100 millis",
