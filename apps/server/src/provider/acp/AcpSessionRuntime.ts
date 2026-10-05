@@ -2467,6 +2467,7 @@ export const make = (
           cause: undefined,
         });
         yield* retireRuntime(error);
+        yield* Fiber.interrupt(activePrompt.value.fiber).pipe(Effect.ignore);
         return yield* error;
       }
       if (Exit.isFailure(completed.value)) {

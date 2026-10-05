@@ -7652,7 +7652,26 @@ export function makeAcpAdapterV2(
                         // background subagents. Skip it and leave the runtime
                         // untouched for the replacement turn.
                         if (!settledSoftInterrupt) {
-                          yield* runtime.cancel;
+                          yield* runtime.cancel.pipe(
+                            Effect.catchTag("AcpTransportError", (error) =>
+                              error.detail?.includes("The ACP agent did not finish cancellation")
+                                ? Effect.gen(function* () {
+                                    // When cancellation timed out, the session runtime forcibly
+                                    // retired the process. Mark runtimeRestartRequired so the next
+                                    // turn spawns a replacement process immediately.
+                                    yield* Ref.set(runtimeRestartRequired, true);
+                                    yield* Effect.logWarning(
+                                      "orchestration-v2.acp-cancel-retired-on-timeout",
+                                      {
+                                        driver,
+                                        providerSessionId: input.providerSessionId,
+                                        providerTurnId: turnInput.providerTurnId,
+                                      },
+                                    );
+                                  })
+                                : Effect.fail(error),
+                            ),
+                          );
                         }
                         if (restartRuntime && flavor.restartRuntimeAfterInterrupt === true) {
                           yield* Ref.set(runtimeRestartRequired, true);

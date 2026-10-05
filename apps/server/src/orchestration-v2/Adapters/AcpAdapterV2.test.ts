@@ -378,6 +378,7 @@ function makeMockRuntime(input: {
     | ((runtimeOrdinal: number) => Readonly<Record<string, string>>);
   readonly protocolEvents?: Queue.Queue<EffectAcpProtocol.AcpProtocolLogEvent>;
   readonly cancelBehavior?: AcpSessionRuntime.AcpSessionRuntimeOptions["cancelBehavior"];
+  readonly cancelTimeout?: AcpSessionRuntime.AcpSessionRuntimeOptions["cancelTimeout"];
   readonly ownDescendantProcessGroups?: boolean;
   readonly ownDetachedProcessGroup?: boolean;
   readonly processGroupPlatform?: NodeJS.Platform;
@@ -416,6 +417,7 @@ function makeMockRuntime(input: {
         AcpSessionRuntime.layer({
           ...runtimeInput,
           ...(input.cancelBehavior === undefined ? {} : { cancelBehavior: input.cancelBehavior }),
+          ...(input.cancelTimeout === undefined ? {} : { cancelTimeout: input.cancelTimeout }),
           ...(input.ownDetachedProcessGroup === undefined
             ? {}
             : { ownDetachedProcessGroup: input.ownDetachedProcessGroup }),
@@ -3591,6 +3593,122 @@ describe("AcpAdapterV2", () => {
       );
       assert.equal(nextTerminal.type === "turn.terminal" && nextTerminal.status, "completed");
     }).pipe(Effect.provide(testLayer), Effect.scoped),
+  );
+
+  it.effect(
+    "finalizes the turn as interrupted and schedules runtime restart when native cancellation times out",
+    () =>
+      Effect.gen(function* () {
+        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const path = yield* Path.Path;
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const selfInvocation = yield* resolveSelfInvocation();
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const native: { current?: AcpSessionRuntime.AcpSessionRuntime["Service"] } = {};
+        const instanceId = ProviderInstanceId.make("acp-native-cancel-timeout");
+        const adapter = makeAcpAdapterV2({
+          crypto: yield* Crypto.Crypto,
+          instanceId,
+          flavor: {
+            driver: ACP_TEST_DRIVER,
+            capabilities: AcpProviderCapabilitiesV2,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner,
+              mockAgentPath: yield* path.fromFileUrl(
+                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+              ),
+              environment: { T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL: "1" },
+              protocolEvents,
+              cancelBehavior: "wait-for-prompt",
+              cancelTimeout: "100 millis",
+              wrapRuntime: (runtime) => {
+                native.current = runtime;
+                return runtime;
+              },
+            }),
+          },
+          fileSystem,
+          idAllocator,
+          serverConfig,
+          selfInvocation,
+        });
+        const threadId = ThreadId.make("thread-acp-native-cancel-timeout");
+        const runtimePolicy = ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const modelSelection = { instanceId, model: "default" } as const;
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("session-acp-native-cancel-timeout"),
+          modelSelection,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const now = yield* DateTime.now;
+        yield* runtime.startTurn(
+          makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now }),
+        );
+        const started = Option.getOrThrow(
+          yield* runtime.events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "turn_item.updated" &&
+                event.turnItem.nativeItemRef?.nativeId === "native-cancel-tool",
+            ),
+            Stream.runHead,
+          ),
+        );
+        if (
+          started.type !== "turn_item.updated" ||
+          started.turnItem.providerTurnId === null ||
+          native.current === undefined
+        ) {
+          return yield* Effect.die("Expected the native cancellable command");
+        }
+        const providerTurnId = started.turnItem.providerTurnId;
+        const interrupt = yield* runtime
+          .interruptTurn({ providerThread, providerTurnId })
+          .pipe(Effect.forkScoped);
+        yield* Stream.fromQueue(protocolEvents).pipe(
+          Stream.filter(
+            (event) =>
+              event.direction === "incoming" &&
+              typeof event.payload === "string" &&
+              event.payload.includes("native-cancel-received"),
+          ),
+          Stream.runHead,
+        );
+        yield* Fiber.join(interrupt);
+        const terminal = Option.getOrThrow(
+          yield* runtime.events.pipe(
+            Stream.filter(
+              (event) => event.type === "turn.terminal" && event.providerTurnId === providerTurnId,
+            ),
+            Stream.runHead,
+          ),
+        );
+        assert.equal(terminal.type === "turn.terminal" && terminal.status, "interrupted");
+        yield* runtime.startTurn(
+          makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now, ordinal: 2 }),
+        );
+        const nextTerminal = Option.getOrThrow(
+          yield* runtime.events.pipe(
+            Stream.filter(
+              (event) => event.type === "turn.terminal" && event.providerTurnId !== providerTurnId,
+            ),
+            Stream.runHead,
+          ),
+        );
+        assert.equal(nextTerminal.type === "turn.terminal" && nextTerminal.status, "completed");
+      }).pipe(Effect.provide(testLayer), Effect.scoped),
   );
 
   it.effect("cancels pending permission requests while interrupting an ACP turn", () =>
