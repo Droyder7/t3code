@@ -1987,8 +1987,21 @@ describe("pending user input answers", () => {
     const three = togglePendingUserInputOptionSelection(question, two, "Customers");
     expect(three.selectedOptionValues).toEqual(["Orders", "Listings"]);
 
+    const withCustom = { selectedOptionValues: ["Orders", "Listings"], customAnswer: "keep this" };
+    const cappedTap = togglePendingUserInputOptionSelection(question, withCustom, "Customers");
+    expect(cappedTap).toBe(withCustom);
+    expect(cappedTap.selectedOptionValues).toEqual(["Orders", "Listings"]);
+    expect(cappedTap.customAnswer).toBe("keep this");
+
     const deselected = togglePendingUserInputOptionSelection(question, two, "Orders");
     expect(deselected.selectedOptionValues).toEqual(["Listings"]);
+  });
+
+  it("submits empty array for required multi-select questions with minItems 0", () => {
+    const zeroMin = { ...multiSelectQuestion, minItems: 0 };
+    expect(buildPendingUserInputAnswers([zeroMin], {})).toEqual({
+      scope: [],
+    });
   });
 
   it("builds array answers for multi-select questions", () => {

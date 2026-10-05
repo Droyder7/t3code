@@ -54,11 +54,13 @@ export function resolvePendingUserInputAnswer(
     (value) => question.options.some((option) => (option.value ?? option.label) === value),
   );
   if (question.multiSelect) {
-    return selectedOptionValues.length > 0
-      ? selectedOptionValues
-      : question.allowCustomAnswer !== false && (draft?.attachmentCount ?? 0) > 0
-        ? ""
-        : null;
+    if (selectedOptionValues.length > 0) {
+      return selectedOptionValues;
+    }
+    if (question.minItems === 0) {
+      return [];
+    }
+    return question.allowCustomAnswer !== false && (draft?.attachmentCount ?? 0) > 0 ? "" : null;
   }
 
   return (
@@ -117,10 +119,7 @@ export function togglePendingUserInputOptionSelection(
       question.maxItems !== undefined &&
       selectedOptionValues.length >= question.maxItems
     ) {
-      return {
-        customAnswer: "",
-        ...(selectedOptionValues.length > 0 ? { selectedOptionValues } : {}),
-      };
+      return draft ?? {};
     }
     const nextSelectedOptionValues = isSelected
       ? selectedOptionValues.filter((value) => value !== optionValue)

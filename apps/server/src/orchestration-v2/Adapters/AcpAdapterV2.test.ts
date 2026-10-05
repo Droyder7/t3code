@@ -653,6 +653,130 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     assert.isFalse(questions[3]?.required);
   });
 
+  it("parses anyOf choice options and respects value/label properties", () => {
+    const questions = parseElicitationQuestions({
+      message: "Choose options",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          runtime: {
+            title: "Runtime",
+            anyOf: [
+              { value: "node", label: "Node.js", description: "Node engine" },
+              { value: "bun", label: "Bun" },
+            ],
+          },
+          packages: {
+            type: "array",
+            items: {
+              anyOf: [
+                { value: "pkg-a", label: "Package A" },
+                { value: "pkg-b", label: "Package B" },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(questions, [
+      {
+        id: "runtime",
+        header: "Runtime",
+        question: "Choose options",
+        options: [
+          { label: "Node.js", description: "Node engine", value: "node" },
+          { label: "Bun", description: "Bun", value: "bun" },
+        ],
+        allowCustomAnswer: false,
+        required: false,
+      },
+      {
+        id: "packages",
+        header: "Question 2",
+        question: "Choose options",
+        options: [
+          { label: "Package A", description: "Package A", value: "pkg-a" },
+          { label: "Package B", description: "Package B", value: "pkg-b" },
+        ],
+        valueType: "array",
+        multiSelect: true,
+        allowCustomAnswer: false,
+        required: false,
+      },
+    ]);
+  });
+
+  it("infers integer or number valueType for untyped numeric enums and coerces answers", () => {
+    const questions = parseElicitationQuestions({
+      message: "Pick port and rate",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          port: {
+            enum: [3000, 8080],
+          },
+          ratio: {
+            enum: [0.5, 1.5],
+          },
+        },
+      },
+    });
+
+    assert.equal(questions[0]?.valueType, "integer");
+    assert.equal(questions[1]?.valueType, "number");
+    const content = elicitationContent({ port: "8080", ratio: "1.5" }, questions);
+    assert.deepEqual(content, {
+      port: 8080,
+      ratio: 1.5,
+    });
+  });
+
+  it("generates appropriate question hints for exclusive and mixed numeric bounds", () => {
+    const questions = parseElicitationQuestions({
+      message: "Number bounds",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          exclusiveBoth: {
+            type: "number",
+            description: "Range",
+            exclusiveMinimum: 0,
+            exclusiveMaximum: 10,
+          },
+          minInclusiveMaxExclusive: {
+            type: "integer",
+            description: "Slice",
+            minimum: 0,
+            exclusiveMaximum: 10,
+          },
+          minExclusiveMaxInclusive: {
+            type: "number",
+            description: "Window",
+            exclusiveMinimum: 0,
+            maximum: 10,
+          },
+          onlyExclusiveMin: {
+            type: "integer",
+            description: "Count",
+            exclusiveMinimum: 5,
+          },
+          onlyExclusiveMax: {
+            type: "number",
+            description: "Cap",
+            exclusiveMaximum: 100,
+          },
+        },
+      },
+    });
+
+    assert.equal(questions[0]?.question, "Range (greater than 0 and less than 10)");
+    assert.equal(questions[1]?.question, "Slice (at least 0 and less than 10)");
+    assert.equal(questions[2]?.question, "Window (greater than 0 and at most 10)");
+    assert.equal(questions[3]?.question, "Count (greater than 5)");
+    assert.equal(questions[4]?.question, "Cap (less than 100)");
+  });
+
   it("resolves elicitation responses for cancel, accept, and decline on missing required fields", () => {
     // 1. Cancel on null answers
     const cancelResult = resolveElicitationResponse({

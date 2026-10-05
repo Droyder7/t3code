@@ -88,6 +88,21 @@ describe("resolvePendingUserInputAnswer", () => {
     ).toEqual(["Server", "Web"]);
   });
 
+  it("allows submitting an empty array when minItems is 0", () => {
+    const zeroMinQuestion = { ...multiSelectQuestion, minItems: 0 };
+    expect(
+      resolvePendingUserInputAnswer(zeroMinQuestion, {
+        selectedOptionValues: [],
+      }),
+    ).toEqual([]);
+    expect(resolvePendingUserInputAnswer(zeroMinQuestion, undefined)).toEqual([]);
+    expect(
+      resolvePendingUserInputAnswer(multiSelectQuestion, {
+        selectedOptionValues: [],
+      }),
+    ).toBeNull();
+  });
+
   it("clears the preset selection when a custom answer is entered", () => {
     expect(
       setPendingUserInputCustomAnswer(
@@ -167,8 +182,11 @@ describe("togglePendingUserInputOptionSelection", () => {
     const two = togglePendingUserInputOptionSelection(question, one, "Desktop");
     expect(two.selectedOptionValues).toEqual(["Server", "Desktop"]);
 
-    const three = togglePendingUserInputOptionSelection(question, two, "Customers");
+    const withCustom = { selectedOptionValues: ["Server", "Desktop"], customAnswer: "preserve me" };
+    const three = togglePendingUserInputOptionSelection(question, withCustom, "Customers");
+    expect(three).toBe(withCustom);
     expect(three.selectedOptionValues).toEqual(["Server", "Desktop"]);
+    expect(three.customAnswer).toBe("preserve me");
 
     const deselected = togglePendingUserInputOptionSelection(question, two, "Server");
     expect(deselected.selectedOptionValues).toEqual(["Desktop"]);
@@ -218,6 +236,13 @@ describe("buildPendingUserInputAnswers", () => {
       }),
     ).toEqual({
       areas: ["Server", "Web"],
+    });
+  });
+
+  it("submits empty array for required multi-select questions with minItems 0", () => {
+    const zeroMin = { ...multiSelectQuestion, minItems: 0 };
+    expect(buildPendingUserInputAnswers([zeroMin], {})).toEqual({
+      areas: [],
     });
   });
 

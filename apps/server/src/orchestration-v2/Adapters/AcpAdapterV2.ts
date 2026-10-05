@@ -1204,16 +1204,51 @@ export function parseElicitationQuestions(params: {
         options.length > 0 || record?.type === "boolean" ? false : undefined;
 
       let questionText = nonEmptyText(record?.description, params.message);
-      const declaredType = typeof record?.type === "string" ? record.type : undefined;
+      let declaredType = typeof record?.type === "string" ? record.type : undefined;
+      if (
+        declaredType === undefined &&
+        Array.isArray(record?.enum) &&
+        record.enum.length > 0 &&
+        record.enum.every((entry) => typeof entry === "number" && Number.isFinite(entry))
+      ) {
+        declaredType = record.enum.every((entry) => Number.isInteger(entry)) ? "integer" : "number";
+      }
       if (declaredType === "number" || declaredType === "integer") {
         const hasMin = typeof record?.minimum === "number";
         const hasMax = typeof record?.maximum === "number";
-        if (hasMin && hasMax) {
-          questionText = `${questionText} (between ${record!.minimum} and ${record!.maximum})`;
-        } else if (hasMin) {
-          questionText = `${questionText} (minimum ${record!.minimum})`;
-        } else if (hasMax) {
-          questionText = `${questionText} (maximum ${record!.maximum})`;
+        const hasExclusiveMin = typeof record?.exclusiveMinimum === "number";
+        const hasExclusiveMax = typeof record?.exclusiveMaximum === "number";
+
+        const lowerBound = hasMin
+          ? { value: record!.minimum as number, inclusive: true }
+          : hasExclusiveMin
+            ? { value: record!.exclusiveMinimum as number, inclusive: false }
+            : undefined;
+
+        const upperBound = hasMax
+          ? { value: record!.maximum as number, inclusive: true }
+          : hasExclusiveMax
+            ? { value: record!.exclusiveMaximum as number, inclusive: false }
+            : undefined;
+
+        if (lowerBound !== undefined && upperBound !== undefined) {
+          if (lowerBound.inclusive && upperBound.inclusive) {
+            questionText = `${questionText} (between ${lowerBound.value} and ${upperBound.value})`;
+          } else if (lowerBound.inclusive && !upperBound.inclusive) {
+            questionText = `${questionText} (at least ${lowerBound.value} and less than ${upperBound.value})`;
+          } else if (!lowerBound.inclusive && upperBound.inclusive) {
+            questionText = `${questionText} (greater than ${lowerBound.value} and at most ${upperBound.value})`;
+          } else {
+            questionText = `${questionText} (greater than ${lowerBound.value} and less than ${upperBound.value})`;
+          }
+        } else if (lowerBound !== undefined) {
+          questionText = lowerBound.inclusive
+            ? `${questionText} (minimum ${lowerBound.value})`
+            : `${questionText} (greater than ${lowerBound.value})`;
+        } else if (upperBound !== undefined) {
+          questionText = upperBound.inclusive
+            ? `${questionText} (maximum ${upperBound.value})`
+            : `${questionText} (less than ${upperBound.value})`;
         }
       }
 

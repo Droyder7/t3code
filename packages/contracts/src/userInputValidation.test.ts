@@ -130,6 +130,18 @@ describe("normalizeUserInputAnswer", () => {
       value: ["a", "b"],
     });
     expect(
+      normalizeUserInputAnswer(question({ valueType: "array" }), [
+        "a",
+        1,
+        true,
+        { nope: true },
+        null,
+      ]),
+    ).toEqual({
+      ok: true,
+      value: ["a", "1", "true"],
+    });
+    expect(
       normalizeUserInputAnswer(question({ valueType: "array", maxItems: 1 }), ["a", "b"]),
     ).toEqual({ ok: false, message: "Select at most 1 option." });
   });
