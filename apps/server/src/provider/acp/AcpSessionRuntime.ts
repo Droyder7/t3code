@@ -82,7 +82,7 @@ const maxStartupMetadataUpdates = 32;
 const maxStderrChunkLength = 32_768;
 
 /** Detail on the transport error raised when native cancellation outlives `cancelTimeout`. */
-export const acpCancellationTimeoutDetail =
+const acpCancellationTimeoutDetail =
   "The ACP agent did not finish cancellation. Its process was stopped.";
 
 /** True only for the cancellation-timeout retirement error raised by `cancel`. */
