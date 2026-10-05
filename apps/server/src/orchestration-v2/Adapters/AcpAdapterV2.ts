@@ -1114,8 +1114,8 @@ function parseChoiceOptions(
     if (!entryRecord) continue;
     const rawValue = entryRecord.const ?? entryRecord.value;
     if (rawValue === undefined || rawValue === null) continue;
-    const valueStr = String(rawValue).trim();
-    if (valueStr.length === 0) continue;
+    const valueStr = String(rawValue);
+    if (valueStr.trim().length === 0) continue;
     const rawLabel = entryRecord.title ?? entryRecord.label;
     const labelStr = nonEmptyText(rawLabel, valueStr);
     const rawDesc = entryRecord.description;
@@ -1131,8 +1131,8 @@ function parseEnumOptions(
   const options: Array<{ label: string; description: string; value: string }> = [];
   for (const entry of enumValues) {
     if (typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean") {
-      const str = String(entry).trim();
-      if (str.length > 0) {
+      const str = String(entry);
+      if (str.trim().length > 0) {
         options.push({ label: str, description: str, value: str });
       }
     }
@@ -1248,9 +1248,8 @@ export function elicitationContent(
         items = [rawValue];
       }
       if (typeof propSchema?.maxItems === "number" && items.length > propSchema.maxItems) {
-        items = items.slice(0, propSchema.maxItems);
-      }
-      if (typeof propSchema?.minItems === "number" && items.length < propSchema.minItems) {
+        // Discard answer if it exceeds the allowed maximum item count
+      } else if (typeof propSchema?.minItems === "number" && items.length < propSchema.minItems) {
         // Discard answer if it fails the required minimum item count
       } else {
         content[key] = items;
@@ -6010,10 +6009,19 @@ export function makeAcpAdapterV2(
               const response =
                 userInput.answers === null
                   ? ({ action: "cancel" } as const)
-                  : ({
-                      action: "accept",
-                      content: elicitationContent(userInput.answers, properties),
-                    } as const);
+                  : (() => {
+                      const content = elicitationContent(userInput.answers, properties);
+                      const requiredKeys = Array.isArray(requestedSchema?.required)
+                        ? requestedSchema.required.filter(
+                            (item): item is string => typeof item === "string",
+                          )
+                        : [];
+                      return requiredKeys.some(
+                        (key) => !Object.prototype.hasOwnProperty.call(content, key),
+                      )
+                        ? ({ action: "decline" } as const)
+                        : ({ action: "accept", content } as const);
+                    })();
               yield* userInput.acknowledgeNativeResponse;
               return response;
             }),

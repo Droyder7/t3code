@@ -306,7 +306,7 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     ]);
   });
 
-  it("skips empty choice options and does not emit blank values or labels", () => {
+  it("skips empty choice options and does not emit blank values or labels while preserving nonblank whitespace", () => {
     const questions = parseElicitationQuestions({
       message: "Select option",
       requestedSchema: {
@@ -317,8 +317,12 @@ describe("ACP elicitation question parsing and answer serialization", () => {
             oneOf: [
               { const: "", title: "" },
               { const: "   ", title: "Blank" },
-              { const: "valid", title: "Valid Option", description: "Good choice" },
+              { const: " valid ", title: "Valid Option", description: "Good choice" },
             ],
+          },
+          enumChoice: {
+            type: "string",
+            enum: ["  ", " option with space "],
           },
         },
       },
@@ -329,7 +333,20 @@ describe("ACP elicitation question parsing and answer serialization", () => {
         id: "choice",
         header: "Question 1",
         question: "Select option",
-        options: [{ label: "Valid Option", description: "Good choice", value: "valid" }],
+        options: [{ label: "Valid Option", description: "Good choice", value: " valid " }],
+        allowCustomAnswer: false,
+      },
+      {
+        id: "enumChoice",
+        header: "Question 2",
+        question: "Select option",
+        options: [
+          {
+            label: " option with space ",
+            description: " option with space ",
+            value: " option with space ",
+          },
+        ],
         allowCustomAnswer: false,
       },
     ]);
@@ -378,7 +395,8 @@ describe("ACP elicitation question parsing and answer serialization", () => {
       invalidPort: { type: "number" },
       tags: { type: "array" },
       singleTag: { type: "array" },
-      limitedTags: { type: "array", maxItems: 2 },
+      limitedTagsFail: { type: "array", maxItems: 2 },
+      limitedTagsPass: { type: "array", maxItems: 2 },
       minTagsPass: { type: "array", minItems: 2 },
       minTagsFail: { type: "array", minItems: 2 },
       title: { type: "string" },
@@ -397,7 +415,8 @@ describe("ACP elicitation question parsing and answer serialization", () => {
         invalidPort: "not-a-number",
         tags: ["a", "b"],
         singleTag: "single",
-        limitedTags: ["tag1", "tag2", "tag3"],
+        limitedTagsFail: ["tag1", "tag2", "tag3"],
+        limitedTagsPass: ["tag1", "tag2"],
         minTagsPass: ["tag1", "tag2"],
         minTagsFail: ["tag1"],
         title: "my-title",
@@ -414,7 +433,7 @@ describe("ACP elicitation question parsing and answer serialization", () => {
       boundedNumber: 25,
       tags: ["a", "b"],
       singleTag: ["single"],
-      limitedTags: ["tag1", "tag2"],
+      limitedTagsPass: ["tag1", "tag2"],
       minTagsPass: ["tag1", "tag2"],
       title: "my-title",
       fromArray: "first",
@@ -424,6 +443,7 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     assert.isFalse("underMin" in content);
     assert.isFalse("overMax" in content);
     assert.isFalse("invalidPort" in content);
+    assert.isFalse("limitedTagsFail" in content);
     assert.isFalse("minTagsFail" in content);
     assert.isFalse("unknownKey" in content);
   });
