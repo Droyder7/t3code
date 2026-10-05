@@ -149,6 +149,7 @@ export function buildPendingUserInputAnswers(
   for (const question of questions) {
     const answer = resolvePendingUserInputAnswer(question, draftAnswers[question.id]);
     if (answer === null) {
+      if (question.required === false) continue;
       return null;
     }
     answers[question.id] = answer;
@@ -208,6 +209,6 @@ export function derivePendingUserInputProgress(
     answeredQuestionCount,
     isLastQuestion,
     isComplete: buildPendingUserInputAnswers(questions, draftAnswers) !== null,
-    canAdvance: resolvedAnswer !== null,
+    canAdvance: resolvedAnswer !== null || activeQuestion?.required === false,
   };
 }

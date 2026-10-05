@@ -76,6 +76,7 @@ import {
   resolveEnvironmentMachineKind,
   RuntimeMode,
   TerminalOpenInput,
+  validateUserInputAnswers,
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
@@ -9716,6 +9717,13 @@ export default function ChatView(props: ChatViewProps) {
       if (!activeThreadId) return;
       const pendingInput = pendingUserInputs.find((input) => input.requestId === requestId);
       if (!pendingInput || pendingInput.responseCapability === "not_resumable") return;
+      if (pendingInput.responseCapability === "live") {
+        const validation = validateUserInputAnswers(pendingInput.questions, answers);
+        if (!validation.ok) {
+          setThreadError(activeThreadId, validation.message);
+          return;
+        }
+      }
       const responseKey = JSON.stringify([environmentId, activeThreadId, requestId]);
       if (userInputResponsesInFlight.current.has(responseKey)) return;
       const attachmentsByQuestionId = new Map<

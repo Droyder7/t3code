@@ -2388,3 +2388,11 @@ it.each(["provider_error", "usage_limit"] as const)(
     });
   },
 );
+
+describe("optional pending user input answers", () => {
+  it("skips unanswered optional questions when building answers", () => {
+    expect(
+      buildPendingUserInputAnswers([{ ...singleSelectQuestion, required: false }], {}),
+    ).toEqual({});
+  });
+});

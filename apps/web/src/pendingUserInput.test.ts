@@ -378,3 +378,21 @@ describe("carryDisplacedCustomAnswerIntoPrompt", () => {
     );
   });
 });
+
+describe("optional pending user input", () => {
+  it("skips unanswered optional questions when building answers", () => {
+    const optional = { ...singleSelectQuestion, required: false };
+    expect(buildPendingUserInputAnswers([optional], {})).toEqual({});
+    expect(buildPendingUserInputAnswers([singleSelectQuestion], {})).toBeNull();
+    expect(
+      buildPendingUserInputAnswers([optional, { ...multiSelectQuestion, required: false }], {}),
+    ).toEqual({});
+  });
+
+  it("allows advancing past an unanswered optional question", () => {
+    const optional = { ...singleSelectQuestion, required: false };
+    const progress = derivePendingUserInputProgress([optional], {}, 0);
+    expect(progress.canAdvance).toBe(true);
+    expect(progress.isComplete).toBe(true);
+  });
+});

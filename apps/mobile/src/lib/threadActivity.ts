@@ -1645,6 +1645,7 @@ export function buildPendingUserInputAnswers(
   for (const question of questions) {
     const answer = resolvePendingUserInputAnswer(question, draftAnswers[question.id]);
     if (answer === null) {
+      if (question.required === false) continue;
       return null;
     }
     answers[question.id] = answer;
