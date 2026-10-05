@@ -1114,7 +1114,8 @@ function parseChoiceOptions(
     if (!entryRecord) continue;
     const rawValue = entryRecord.const ?? entryRecord.value;
     if (rawValue === undefined || rawValue === null) continue;
-    const valueStr = String(rawValue);
+    const valueStr = String(rawValue).trim();
+    if (valueStr.length === 0) continue;
     const rawLabel = entryRecord.title ?? entryRecord.label;
     const labelStr = nonEmptyText(rawLabel, valueStr);
     const rawDesc = entryRecord.description;
@@ -1157,7 +1158,9 @@ export function parseElicitationQuestions(params: {
       let multiSelect: boolean | undefined = undefined;
 
       if (isArray) {
-        multiSelect = true;
+        if (record?.maxItems !== 1) {
+          multiSelect = true;
+        }
         const itemsRecord = unknownRecord(record?.items);
         const choiceList = itemsRecord?.oneOf ?? itemsRecord?.anyOf;
         if (Array.isArray(choiceList)) {
@@ -1223,17 +1226,34 @@ export function elicitationContent(
             ? Number(first)
             : NaN;
       if (!Number.isNaN(num) && Number.isFinite(num)) {
-        content[key] = num;
+        if (declaredType === "integer" && !Number.isInteger(num)) {
+          // Reject floats for integer fields
+        } else if (typeof propSchema?.minimum === "number" && num < propSchema.minimum) {
+          // Reject numbers below minimum
+        } else if (typeof propSchema?.maximum === "number" && num > propSchema.maximum) {
+          // Reject numbers above maximum
+        } else {
+          content[key] = num;
+        }
       }
     } else if (declaredType === "array") {
+      let items: string[] = [];
       if (Array.isArray(rawValue)) {
-        content[key] = rawValue
+        items = rawValue
           .filter(
             (entry): entry is string | number | boolean => entry !== null && entry !== undefined,
           )
           .map(String);
       } else if (typeof rawValue === "string" && rawValue.length > 0) {
-        content[key] = [rawValue];
+        items = [rawValue];
+      }
+      if (typeof propSchema?.maxItems === "number" && items.length > propSchema.maxItems) {
+        items = items.slice(0, propSchema.maxItems);
+      }
+      if (typeof propSchema?.minItems === "number" && items.length < propSchema.minItems) {
+        // Discard answer if it fails the required minimum item count
+      } else {
+        content[key] = items;
       }
     } else if (declaredType === "string") {
       if (typeof rawValue === "string") {

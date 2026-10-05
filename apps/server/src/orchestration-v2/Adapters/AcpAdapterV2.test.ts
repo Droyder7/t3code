@@ -306,13 +306,81 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     ]);
   });
 
-  it("coerces answers in elicitationContent based on property schema types", () => {
+  it("skips empty choice options and does not emit blank values or labels", () => {
+    const questions = parseElicitationQuestions({
+      message: "Select option",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          choice: {
+            type: "string",
+            oneOf: [
+              { const: "", title: "" },
+              { const: "   ", title: "Blank" },
+              { const: "valid", title: "Valid Option", description: "Good choice" },
+            ],
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(questions, [
+      {
+        id: "choice",
+        header: "Question 1",
+        question: "Select option",
+        options: [{ label: "Valid Option", description: "Good choice", value: "valid" }],
+        allowCustomAnswer: false,
+      },
+    ]);
+  });
+
+  it("parses array questions with maxItems: 1 as single-select", () => {
+    const questions = parseElicitationQuestions({
+      message: "Pick exactly one from list",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          singlePick: {
+            type: "array",
+            maxItems: 1,
+            items: {
+              type: "string",
+              enum: ["first", "second"],
+            },
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(questions, [
+      {
+        id: "singlePick",
+        header: "Question 1",
+        question: "Pick exactly one from list",
+        options: [
+          { label: "first", description: "first", value: "first" },
+          { label: "second", description: "second", value: "second" },
+        ],
+        allowCustomAnswer: false,
+      },
+    ]);
+  });
+
+  it("coerces answers in elicitationContent based on property schema types and constraints", () => {
     const properties = {
       isFast: { type: "boolean" },
       port: { type: "integer" },
+      floatPort: { type: "integer" },
+      boundedNumber: { type: "number", minimum: 10, maximum: 50 },
+      underMin: { type: "number", minimum: 10 },
+      overMax: { type: "number", maximum: 50 },
       invalidPort: { type: "number" },
       tags: { type: "array" },
       singleTag: { type: "array" },
+      limitedTags: { type: "array", maxItems: 2 },
+      minTagsPass: { type: "array", minItems: 2 },
+      minTagsFail: { type: "array", minItems: 2 },
       title: { type: "string" },
       fromArray: { type: "string" },
       untyped: {},
@@ -322,9 +390,16 @@ describe("ACP elicitation question parsing and answer serialization", () => {
       {
         isFast: "true",
         port: "8080",
+        floatPort: "3.5",
+        boundedNumber: "25",
+        underMin: "5",
+        overMax: "100",
         invalidPort: "not-a-number",
         tags: ["a", "b"],
         singleTag: "single",
+        limitedTags: ["tag1", "tag2", "tag3"],
+        minTagsPass: ["tag1", "tag2"],
+        minTagsFail: ["tag1"],
         title: "my-title",
         fromArray: ["first", "second"],
         untyped: "value",
@@ -336,13 +411,20 @@ describe("ACP elicitation question parsing and answer serialization", () => {
     assert.deepEqual(content, {
       isFast: true,
       port: 8080,
+      boundedNumber: 25,
       tags: ["a", "b"],
       singleTag: ["single"],
+      limitedTags: ["tag1", "tag2"],
+      minTagsPass: ["tag1", "tag2"],
       title: "my-title",
       fromArray: "first",
       untyped: "value",
     });
+    assert.isFalse("floatPort" in content);
+    assert.isFalse("underMin" in content);
+    assert.isFalse("overMax" in content);
     assert.isFalse("invalidPort" in content);
+    assert.isFalse("minTagsFail" in content);
     assert.isFalse("unknownKey" in content);
   });
 });
