@@ -1376,6 +1376,12 @@ interface AcpActivePrompt {
   readonly completed: Deferred.Deferred<void>;
 }
 
+/**
+ * Spawns and manages an ACP agent child process and its JSON-RPC session runtime.
+ *
+ * Handles protocol handshakes, bi-directional message dispatch, prompt execution,
+ * cancel timeouts, and process lifecycle containment.
+ */
 export const make = (
   options: AcpSessionRuntimeOptions,
 ): Effect.Effect<

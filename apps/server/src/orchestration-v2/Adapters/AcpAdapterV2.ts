@@ -1460,6 +1460,12 @@ interface SnapshotMessageState {
   loadingIndex: number;
 }
 
+/**
+ * Constructs an orchestration V2 provider adapter instance for ACP-backed agents.
+ *
+ * Coordinates child process lifecycle, protocol message translation, session
+ * initialization, streaming updates, tool executions, and graceful interruption.
+ */
 export function makeAcpAdapterV2(
   options: AcpAdapterV2Options,
 ): ProviderAdapter.ProviderAdapterV2Shape {
@@ -7406,6 +7412,10 @@ export function makeAcpAdapterV2(
                 providerThreadId: turnInput.providerThread.id,
               }),
             ),
+          /**
+           * Interrupts an active turn on the ACP agent, coordinating graceful
+           * cancellation, timeout retirement, and replacement runtime scheduling.
+           */
           interruptTurn: Effect.fn("AcpAdapterV2.interruptTurn")(
             function* (turnInput: ProviderAdapter.ProviderAdapterV2InterruptInput) {
               return yield* Effect.uninterruptibleMask((restore) =>
