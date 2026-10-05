@@ -7664,11 +7664,15 @@ export function makeAcpAdapterV2(
                         if (!settledSoftInterrupt) {
                           yield* runtime.cancel.pipe(
                             Effect.catchTag("AcpTransportError", (error) =>
-                              error.detail?.includes("The ACP agent did not finish cancellation")
+                              AcpSessionRuntime.isAcpCancellationTimeoutError(error)
                                 ? Effect.gen(function* () {
-                                    // When cancellation timed out, the session runtime forcibly
-                                    // retired the process. Mark runtimeRestartRequired so the next
-                                    // turn spawns a replacement process immediately.
+                                    // Cancellation timed out, and the session runtime forcibly
+                                    // retired the process. Settle the turn here instead of
+                                    // depending on the dying prompt fiber, and flag the runtime
+                                    // for replacement so the next turn spawns a fresh process.
+                                    if (!context.finalized) {
+                                      yield* finalizeTurn(context, "interrupted");
+                                    }
                                     yield* Ref.set(runtimeRestartRequired, true);
                                     yield* Effect.logWarning(
                                       "orchestration-v2.acp-cancel-retired-on-timeout",

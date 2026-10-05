@@ -81,6 +81,19 @@ const maxStartupMetadataUpdates = 32;
 // Antigravity can emit an accepted 16 KiB Google authorization URL on stderr.
 const maxStderrChunkLength = 32_768;
 
+/** Detail on the transport error raised when native cancellation outlives `cancelTimeout`. */
+export const acpCancellationTimeoutDetail =
+  "The ACP agent did not finish cancellation. Its process was stopped.";
+
+/** True only for the cancellation-timeout retirement error raised by `cancel`. */
+export function isAcpCancellationTimeoutError(error: EffectAcpErrors.AcpTransportError): boolean {
+  return (
+    error.operation === "call-rpc" &&
+    error.method === "session/cancel" &&
+    error.detail === acpCancellationTimeoutDetail
+  );
+}
+
 export interface AcpSpawnInput {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
@@ -2469,7 +2482,7 @@ export const make = (
         const error = new EffectAcpErrors.AcpTransportError({
           operation: "call-rpc",
           method: "session/cancel",
-          detail: "The ACP agent did not finish cancellation. Its process was stopped.",
+          detail: acpCancellationTimeoutDetail,
           cause: undefined,
         });
         yield* retireRuntime(error);
